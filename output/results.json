@@ -1,0 +1,314 @@
+{
+  "n_respondents": 96,
+  "n_statements": 60,
+  "total_cells": 5760,
+  "missing_cells": 542,
+  "missing_pct": 9.41,
+  "stats_n1": {
+    "name": "Respondent Similarity (Network 1)",
+    "nodes": 96,
+    "edges": 639,
+    "density": 0.1401,
+    "avg_degree": 13.31,
+    "clustering_coeff": 0.3351,
+    "lcc_nodes": 91,
+    "lcc_edges": 639,
+    "avg_path_length": 1.9683,
+    "diameter": 3
+  },
+  "stats_n2": {
+    "name": "Statement Co-Endorsement (Network 2)",
+    "nodes": 60,
+    "edges": 316,
+    "density": 0.1785,
+    "avg_degree": 10.53,
+    "clustering_coeff": 0.252,
+    "lcc_nodes": 56,
+    "lcc_edges": 316,
+    "avg_path_length": 2.1487,
+    "diameter": 5
+  },
+  "modularity": 0.2586,
+  "n_communities": 12,
+  "community_sizes": {
+    "0": 17,
+    "1": 1,
+    "2": 8,
+    "3": 15,
+    "4": 13,
+    "5": 9,
+    "6": 17,
+    "7": 12,
+    "8": 1,
+    "9": 1,
+    "10": 1,
+    "11": 1
+  },
+  "profile": {
+    "T": {
+      "0": 0.817,
+      "1": NaN,
+      "2": 1.117,
+      "3": 0.951,
+      "4": 0.923,
+      "5": 0.909,
+      "6": 1.183,
+      "7": 1.022,
+      "8": NaN,
+      "9": NaN,
+      "10": NaN,
+      "11": NaN
+    },
+    "E": {
+      "0": 0.918,
+      "1": NaN,
+      "2": 0.908,
+      "3": 1.077,
+      "4": 0.8,
+      "5": 1.244,
+      "6": 0.662,
+      "7": 0.834,
+      "8": NaN,
+      "9": NaN,
+      "10": NaN,
+      "11": NaN
+    },
+    "S": {
+      "0": 1.175,
+      "1": NaN,
+      "2": 1.286,
+      "3": 1.293,
+      "4": 1.432,
+      "5": 1.474,
+      "6": 1.261,
+      "7": 1.13,
+      "8": NaN,
+      "9": NaN,
+      "10": NaN,
+      "11": NaN
+    },
+    "V": {
+      "0": 1.325,
+      "1": NaN,
+      "2": 1.452,
+      "3": 1.255,
+      "4": 1.59,
+      "5": 1.593,
+      "6": 1.171,
+      "7": 1.434,
+      "8": NaN,
+      "9": NaN,
+      "10": NaN,
+      "11": NaN
+    },
+    "n": {
+      "0": 17,
+      "1": 1,
+      "2": 8,
+      "3": 15,
+      "4": 13,
+      "5": 9,
+      "6": 17,
+      "7": 12,
+      "8": 1,
+      "9": 1,
+      "10": 1,
+      "11": 1
+    }
+  },
+  "top5_central_n1": [
+    114,
+    67,
+    110,
+    105,
+    81
+  ],
+  "top5_central_n1_values": {
+    "114": 0.2582,
+    "67": 0.254,
+    "110": 0.2438,
+    "105": 0.2377,
+    "81": 0.2359
+  },
+  "bottom5_n1": [
+    44,
+    73,
+    68,
+    78,
+    60
+  ],
+  "top10_bridge_n2": {
+    "betweenness": {
+      "S07": 0.09175920514319111,
+      "E12": 0.07948568088836937,
+      "V07": 0.07422559906487433,
+      "S06": 0.07364114552893045,
+      "S09": 0.054938632378725885,
+      "E10": 0.040327293980128576,
+      "S02": 0.0385739333722969,
+      "S15": 0.03798947983635301,
+      "E01": 0.037405026300409115,
+      "T12": 0.03623611922852133
+    },
+    "category": {
+      "S07": "S",
+      "E12": "E",
+      "V07": "V",
+      "S06": "S",
+      "S09": "S",
+      "E10": "E",
+      "S02": "S",
+      "S15": "S",
+      "E01": "E",
+      "T12": "T"
+    }
+  },
+  "top5_polarizing": {
+    "E04": {
+      "var": 1.365,
+      "mean": 0.437,
+      "text": "High-quality online learning can effectively complement classroom teaching."
+    },
+    "E03": {
+      "var": 1.264,
+      "mean": -0.943,
+      "text": "Class attendance should be compulsory for all courses."
+    },
+    "E02": {
+      "var": 1.253,
+      "mean": -0.161,
+      "text": "Traditional written examinations accurately measure a student's knowledge."
+    },
+    "T08": {
+      "var": 1.196,
+      "mean": 0.078,
+      "text": "AI-assisted diagnosis should become routine in healthcare."
+    },
+    "S02": {
+      "var": 1.113,
+      "mean": 0.839,
+      "text": "Universities should encourage students to participate in community service activities."
+    }
+  },
+  "top5_consensus": {
+    "E15": {
+      "var": 0.254,
+      "mean": 1.713,
+      "text": "Continuous learning and skill development are essential throughout one's career."
+    },
+    "V13": {
+      "var": 0.319,
+      "mean": 1.671,
+      "text": "Companies should be held accountable for the environmental impacts of their activities."
+    },
+    "S09": {
+      "var": 0.347,
+      "mean": 1.471,
+      "text": "Universities should promote an inclusive environment where different viewpoints can be discussed respectfully."
+    },
+    "V06": {
+      "var": 0.349,
+      "mean": 1.512,
+      "text": "Water conservation should be a priority in households, institutions, and industries."
+    },
+    "S05": {
+      "var": 0.352,
+      "mean": 1.632,
+      "text": "Individuals should have greater control over how their personal data are collected and used."
+    }
+  },
+  "homophily": [
+    {
+      "category": "T",
+      "category_label": "Technology / AI",
+      "overall_variance": 0.9732,
+      "avg_within_community_variance": 0.9446,
+      "variance_reduction_pct": 2.9
+    },
+    {
+      "category": "E",
+      "category_label": "Education",
+      "overall_variance": 1.3163,
+      "avg_within_community_variance": 1.2592,
+      "variance_reduction_pct": 4.3
+    },
+    {
+      "category": "S",
+      "category_label": "Ethics / Society",
+      "overall_variance": 0.7011,
+      "avg_within_community_variance": 0.6816,
+      "variance_reduction_pct": 2.8
+    },
+    {
+      "category": "V",
+      "category_label": "Environment",
+      "overall_variance": 0.5693,
+      "avg_within_community_variance": 0.5331,
+      "variance_reduction_pct": 6.4
+    }
+  ],
+  "cos_pear_corr": 0.6495,
+  "effective_threshold": 0.0266,
+  "per_stmt_missing": {
+    "V06": 12,
+    "V11": 12,
+    "S10": 12,
+    "S14": 12,
+    "V12": 12,
+    "V08": 11,
+    "V15": 11,
+    "S09": 11,
+    "E08": 11,
+    "E13": 11,
+    "E05": 11,
+    "V02": 11,
+    "V10": 11,
+    "V13": 11,
+    "V14": 11,
+    "V01": 11,
+    "V07": 11,
+    "V09": 11,
+    "S01": 10,
+    "E09": 10,
+    "E06": 10,
+    "V03": 10,
+    "V05": 10,
+    "S15": 10,
+    "S08": 10,
+    "S07": 10,
+    "S12": 10,
+    "V04": 10,
+    "E07": 9,
+    "E10": 9,
+    "E11": 9,
+    "E04": 9,
+    "E02": 9,
+    "E01": 9,
+    "E03": 9,
+    "S13": 9,
+    "E14": 9,
+    "S11": 9,
+    "E15": 9,
+    "S02": 9,
+    "S03": 9,
+    "S04": 9,
+    "S05": 9,
+    "E12": 9,
+    "S06": 9,
+    "T03": 7,
+    "T13": 7,
+    "T11": 7,
+    "T12": 6,
+    "T14": 6,
+    "T08": 6,
+    "T09": 6,
+    "T15": 6,
+    "T07": 5,
+    "T01": 5,
+    "T04": 5,
+    "T05": 5,
+    "T06": 5,
+    "T10": 5,
+    "T02": 5
+  }
+}
