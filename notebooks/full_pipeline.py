@@ -1,295 +1,431 @@
 """
-full_pipeline.py — End-to-end execution of the survey network analysis.
+full_pipeline.py — End-to-end survey network analysis.
 
-Run from the project root:
     python notebooks/full_pipeline.py
 
-Produces all figures in output/figures/ and prints all analysis results.
+Regenerates output/figures/*.png, output/report.md, output/report.pdf and
+output/results.json. Every number in the report is computed here.
 """
 
-import sys, os, json
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
+import json
+import os
+import sys
+import textwrap
+import warnings
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+os.chdir(ROOT)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 import numpy as np
 import pandas as pd
 
-from src.data_prep import load_and_encode, missing_data_details
-from src.build_networks import build_respondent_network, build_statement_network
+from src.data_prep import CATEGORY_LABELS, DOMAINS, filter_respondents, load_and_encode, response_style_flags
+from src.build_networks import build_respondent_network, build_statement_network, positive_subgraph
 from src.analysis import (
-    descriptive_stats, detect_communities, community_sizes,
-    community_opinion_profile, centrality_analysis_n1, centrality_analysis_n2,
-    polarization_scores, top_polarizing_consensus, within_vs_across_variance,
+    centrality_table, community_deviation, descriptive_stats, detect_communities, domain_eta_squared,
+    eta_squared, polarizing_consensus_rejected, statement_eta_squared, statement_summary,
 )
 from src.advanced_analysis import (
-    respondent_k_sensitivity, statement_threshold_sensitivity,
-    signed_network_summary, domain_correlation_matrix, within_vs_across_statement_edges,
-    community_stability_analysis, eta_squared_explained_variance,
-    polarization_vs_network_position, top_statement_correlations,
+    agreement_bias_check, community_stability, cross_domain_share, design_choice_evidence, domain_reliability, domain_scores,
+    item_pair_correlations, modularity_null_model, negative_edges, principal_components,
+    respondent_k_sensitivity, statement_communities, statement_threshold_sensitivity,
 )
-from src.visualize import (
-    plot_similarity_distribution, plot_respondent_network,
-    plot_statement_network, plot_polarization_bars,
-    plot_community_heatmap, plot_degree_distribution,
-    plot_k_sensitivity, plot_threshold_sensitivity, plot_domain_correlation_heatmap,
-    plot_polarization_vs_centrality, FIG_DIR,
-)
+from src import visualize as viz
 from src.generate_pdf import build_pdf
 
+# ── Configuration ────────────────────────────────────────────────────────────
+TEAM_NAME = "Titan Mandal"
+REPO_URL = "https://github.com/sarvesh2005takbhate/Titan_Mandal"
+CONTRIBUTIONS = {
+    "Hrishikesh": "Data preparation, Likert encoding, missing-data handling, respondent similarity construction.",
+    "Sarvesh": "Network construction, Louvain community detection, centrality analysis, robustness experiments.",
+    "Shourya": "Visualization, statement-level analysis, report compilation and PDF generation.",
+}
+K = 8                     # nearest neighbours in the respondent network
+CORR_THRESHOLD = 0.30     # |r| cut-off in the statement network
+MIN_ANSWERED = 30         # respondents answering fewer statements are excluded
+NULL_RUNS = 50
+# Near-duplicate statements placed in different domains (answer-consistency check).
+DUPLICATE_PAIRS = [("T10", "S05"), ("T02", "E12")]
+# A statement cluster is named after the anchor statement it contains.
+THEME_ANCHORS = {
+    "T10": "Digital rights & AI regulation",
+    "T02": "AI-ready, industry-linked education",
+    "V02": "Environmental & social responsibility",
+    "E01": "Active learning & civic action",
+}
 
-def _build_report_markdown(df, code_to_text, stats1, stats2, partition, profile, cent1, cent2,
-                          top_polar, top_consensus, homophily, cos_pear_corr, k_sensitivity,
-                          threshold_sensitivity, signed_summary, domain_matrix, statement_edge_summary,
-                          stability, eta2_summary, polar_vs_pos):
-    """Assemble a reproducible markdown report directly from the computed metrics."""
-    lines = [
-        "# Opinion Network Analysis of Class Survey Responses",
-        "",
-        "**Course Assignment**: Data Processing & Complex Networks (DPCN)",
-        "**Team Name**: Titan Mandal",
-        "**GitHub Repository**: [sarvesh2005takbhate/Titan_Mandal](https://github.com/sarvesh2005takbhate/Titan_Mandal)",
-        "",
-        "---",
-        "",
-        "## 1. Executive Summary",
-        "",
-        "This report analyzes a 96-respondent, 60-item Likert opinion network using two complementary graphs: a respondent similarity network and a statement association network. The data cover four domains: Technology / AI (T), Education (E), Ethics / Society (S), and Environment (V).",
-        "",
-        "The respondent network uses cosine similarity over 60-item Likert opinion vectors and then applies k-NN sparsification. A key methodological correction was made to ensure that similarity is not confused with shortest-path distance: path lengths use a monotone distance transformation, while similarity weights remain available for interpretation. This preserves the intended meaning of stronger similarity as stronger affinity while allowing graph distances to reflect cost-based connectivity. The resulting networks suggest that consensus is strongest around environmental and ethical values, while education-related items remain the main source of polarization.",
-        "",
-        "The statement network shows a strongly signed structure: most retained edges are positive, but negative correlations still identify substantively important tensions. The strongest community signal is not a single ideological split, but a patterned set of respondent communities that differ more in their educational attitudes than in their general environmental ethos.",
-        "",
-        "## 2. Dataset Documentation",
-        "",
-        f"- Respondents: {df.shape[0]}",
-        f"- Statements: {df.shape[1]}",
-        f"- Total data cells: {df.shape[0] * df.shape[1]}",
-        f"- Missing cells: {int(df.isna().sum().sum())} ({(df.isna().sum().sum() / (df.shape[0] * df.shape[1]) * 100):.2f}%)",
-        "- Missing responses are kept as NaN rather than coded as neutral values.",
-        "- Response encoding: Strongly Disagree = -2, Disagree = -1, Neutral = 0, Agree = +1, Strongly Agree = +2.",
-        "",
-        "## 3. Network Construction",
-        "",
-        "### 3.1 Respondent network",
-        "",
-        f"- Nodes = respondents ({stats1['nodes']})",
-        f"- Edges = k-NN similarity network with k={k_sensitivity['k'].iloc[2]} in the main run; final edge count = {stats1['edges']}.",
-        f"- Similarity measure = pairwise-complete cosine similarity on the 60-item Likert vectors, using only statements answered by both respondents.",
-        "- Distance used for shortest paths = 1 / similarity for positive similarities; non-positive similarities are treated as non-connecting for path computations.",
-        "",
-        "### 3.2 Statement network",
-        "",
-        f"- Nodes = statements ({stats2['nodes']})",
-        f"- Edges = Pearson correlation with |r| >= 0.30; positive edges denote co-endorsement and negative edges denote opposition.",
-        f"- Positive edges: {signed_summary['positive_edges']}; negative edges: {signed_summary['negative_edges']}.",
-        "",
-        "## 4. Network-Level Analysis",
-        "",
-        "| Metric | Respondent Network | Statement Network |",
-        "|---|---:|---:|",
-        f"| Nodes | {stats1['nodes']} | {stats2['nodes']} |",
-        f"| Edges | {stats1['edges']} | {stats2['edges']} |",
-        f"| Density | {stats1['density']} | {stats2['density']} |",
-        f"| Average degree | {stats1['avg_degree']} | {stats2['avg_degree']} |",
-        f"| Clustering coefficient | {stats1['clustering_coeff']} | {stats2['clustering_coeff']} |",
-        f"| LCC size | {stats1['lcc_nodes']} | {stats2['lcc_nodes']} |",
-        f"| Average shortest-path length | {stats1['avg_path_length']} | {stats2['avg_path_length']} |",
-        f"| Diameter | {stats1['diameter']} | {stats2['diameter']} |",
-        "",
-        "The corrected distance handling changes shortest-path calculations materially without altering the underlying similarity interpretation. That means weighted centrality and path-based comparisons now reflect valid network costs rather than an accidental misuse of similarity as distance.",
-        "",
-        "## 5. Community Structure",
-        "",
-        "- Louvain modularity: Q = 0.2586",
-        f"- Number of communities: {len(set(partition.values()))}",
-        "- Community structure is strongest in educational attitudes, while environmental values remain comparatively uniform across communities.",
-        "",
-        "![Figure 2: Respondent Network](figures/fig2_respondent_network.png)",
-        "",
-        "## 6. Statement-Level Analysis",
-        "",
-        "### Polarization and consensus",
-        "",
-        f"Most polarizing statement: {top_polar.index[0]} ({top_polar.iloc[0]['variance']:.3f})",
-        f"Most consensual statement: {top_consensus.index[0]} ({top_consensus.iloc[0]['variance']:.3f})",
-        "",
-        "| Rank | Code | Variance | Mean |",
-        "|---|---|---:|---:|",
-        *[f"| {idx + 1} | {code} | {row['variance']:.3f} | {row['mean']:.3f} |" for idx, (code, row) in enumerate(top_polar.head(5).iterrows())],
-        "",
-        "### Consensus table",
-        "",
-        "| Rank | Code | Statement text | Mean | Variance |",
-        "|---|---|---|---:|---:|",
-        "| 1 | E15 | Continuous learning and skill development are essential throughout one's career. | 1.713 | 0.254 |",
-        "| 2 | V13 | Companies should be held accountable for the environmental impacts of their activities. | 1.671 | 0.319 |",
-        "| 3 | S09 | Stronger public trust in institutions is necessary for social progress. | 1.471 | 0.347 |",
-        "| 4 | V06 | Environmental sustainability should be integrated into higher education curricula. | 1.512 | 0.349 |",
-        "| 5 | S05 | Every individual has a responsibility to contribute positively to society. | 1.632 | 0.352 |",
-        "",
-        "## 7. Signed Statement Network",
-        "",
-        f"- Positive edges: {signed_summary['positive_edges']} ({signed_summary['fraction_positive']:.2%})",
-        f"- Negative edges: {signed_summary['negative_edges']} ({signed_summary['fraction_negative']:.2%})",
-        "- The signed network reveals that association is not purely cooperative; negative correlation edges are meaningful and identify the strongest conceptual tensions.",
-        "",
-        "## 8. Domain-Level Analysis",
-        "",
-        "- Strongest cross-domain association: S-V (r = 0.7045)",
-        "- Weakest cross-domain association: T-E (r = 0.2886)",
-        "- The domain-level score correlations are reported in the generated heatmap and show that environmental and ethical values remain more coherent than education-related opinions, while the weakest cross-domain relationship is between technology and education.",
-        "",
-        "![Figure 9: Domain Correlation Heatmap](figures/fig9_domain_correlation_heatmap.png)",
-        "",
-        "## 9. Robustness and Sensitivity",
-        "",
-        f"- Respondent network k-sensitivity: {k_sensitivity.to_dict(orient='records')}",
-        f"- Statement network threshold sensitivity: {threshold_sensitivity.to_dict(orient='records')}",
-        f"- Community stability (NMI): {stability['stability_nmi']}",
-        f"- Cosine vs Pearson respondent similarity correlation: {cos_pear_corr:.4f}",
-        "",
-        "![Figure 7: k-sensitivity](figures/fig7_k_sensitivity.png)",
-        "",
-        "![Figure 8: threshold sensitivity](figures/fig8_threshold_sensitivity.png)",
-        "",
-        "## 10. Results and Discussion",
-        "",
-        "The network suggests that the class is broadly aligned on environmental accountability and inclusive ethics but materially less aligned on how education should operate. The strongest structural polarization is not due to drastic disagreement across all domains, but to a relatively narrow set of educational items such as attendance requirements, exams, and digital learning.",
-        "",
-        "This illustrates the key central question of the assignment: ordinary survey means would miss the relational structure. The network shows that some respondents are structurally central because they occupy bridging positions within the network, while others are locally cohesive yet less centrally positioned. Centrality here indicates structural position and does not establish real-world influence or authority.",
-        "",
-        "## 11. Limitations",
-        "",
-        "- Likert responses are ordinal rather than truly continuous observations.",
-        "- Cosine similarity measures pattern orientation, not literal agreement on all statements.",
-        "- Pearson correlation assumes a linear form of association.",
-        "- Missing data and k-NN sparsification are modeling choices that alter network topology.",
-        "- Community detection is algorithm-dependent and can vary with seed and resolution.",
-        "- Network edges are associative, not causal.",
-        "- Centrality does not measure real-world influence directly.",
-        "",
-        "## 12. Conclusion",
-        "",
-        "The network analysis suggests that the class is not uniformly polarized. Instead, the strongest structure is a combination of broad consensus on ethical and environmental issues and a more heterogeneous set of educational arguments. This demonstrates how network methods can recover relational patterns that are not visible in raw averages alone.",
-        "",
-        "## 13. Individual Contributions",
-        "",
-        "- [Team Member 1]: Data preparation, Likert encoding, missing-data handling, respondent similarity construction.",
-        "- [Team Member 2]: Network construction, Louvain community detection, centrality analysis, robustness experiments.",
-        "- [Team Member 3]: Visualization, statement-level analysis, report compilation and PDF generation.",
-        "",
-        "*Replace the placeholders above with actual team member names before final submission.*",
-        "",
-        "---",
-        "",
-        "*Report generated automatically from computed network metrics and figures.*",
-    ]
-    return "\n".join(lines)
+
+def short(code, text, width=70):
+    return f"{code} ({textwrap.shorten(text[code], width, placeholder='…')})"
+
+
+def pct(x, digits=0):
+    return f"{x:.{digits}%}"
 
 
 def main():
-    print("=" * 70)
-    print("  DPCN Assignment — Survey Network Analysis Pipeline")
-    print("=" * 70)
+    fig_dir = viz.FIG_DIR
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    for old in fig_dir.glob("*.png"):
+        old.unlink()
 
-    FIG_DIR.mkdir(parents=True, exist_ok=True)
+    # ── 1. Data ──────────────────────────────────────────────────────────────
+    print("[1/5] Loading data ...")
+    df_all, text, missing = load_and_encode("data/Survey_Results_UC.csv")
+    df, dropped = filter_respondents(df_all, MIN_ANSWERED)
+    flags = response_style_flags(df)
+    n_all, n = len(df_all), len(df)
+    answers = df.stack()
+    share_agree, share_neutral, share_disagree = (answers > 0).mean(), (answers == 0).mean(), (answers < 0).mean()
+    partial = df.notna().sum(axis=1).loc[lambda s: s < df.shape[1] - 5]
+    nc_after = int(df.isna().sum().sum())
 
-    print("\n[1/6] Loading and encoding survey data …")
-    csv_path = Path("data/Survey_Results_UC.csv")
-    df, code_to_text, _ = load_and_encode(csv_path)
-    per_stmt_missing, per_resp_missing = missing_data_details(df)
+    # ── 2. Networks ──────────────────────────────────────────────────────────
+    print("[2/5] Building networks ...")
+    G1, sim = build_respondent_network(df, k=K, center=True)
+    G2, corr = build_statement_network(df, CORR_THRESHOLD)
+    G2_pos = positive_subgraph(G2)
+    stats1, stats2 = descriptive_stats(G1), descriptive_stats(G2_pos)
 
-    print(f"  Respondents: {df.shape[0]}")
-    print(f"  Statements : {df.shape[1]}")
-    print(f"  Missing cells: {int(df.isna().sum().sum())} ({(df.isna().sum().sum() / (df.shape[0] * df.shape[1]) * 100):.2f}%)")
+    # ── 3. Analysis ──────────────────────────────────────────────────────────
+    print("[3/5] Analysing (null model and stability take a minute) ...")
+    partition, Q = detect_communities(G1)
+    sizes = pd.Series(partition).value_counts().sort_index()
+    null = modularity_null_model(df, Q, k=K, runs=NULL_RUNS)
+    stability = community_stability(G1, df, partition, k=K)
+    bias = agreement_bias_check(df, k=K)
+    k_sens = respondent_k_sensitivity(df, partition)
+    cent1 = centrality_table(G1)
+    eta = statement_eta_squared(df, partition)
+    eta_domain = domain_eta_squared(df, partition)
+    top_eta = list(eta.head(10).index)
+    deviation = community_deviation(df, partition, top_eta)
 
-    print("\n[2/6] Building Networks …")
-    G1, sim_cos, sim_pear = build_respondent_network(df, k=8, method="knn")
-    G2, corr_matrix = build_statement_network(df, corr_threshold=0.30)
+    summary = statement_summary(df)
+    polar, consensus, rejected = polarizing_consensus_rejected(summary)
+    neg = negative_edges(G2)
+    thr_sens = statement_threshold_sensitivity(df)
+    thr_row = thr_sens.set_index("threshold").loc[CORR_THRESHOLD]
+    cent2 = centrality_table(G2_pos)
+    signed_isolates = sorted(n for n in G2 if G2.degree(n) == 0)
+    cross_share = cross_domain_share(G2)
+    stmt_part, stmt_q, stmt_ari, domain_q = statement_communities(G2)
+    positive_only_isolates = sorted(set(stats2["isolates"]) - set(signed_isolates))
 
-    stats1 = descriptive_stats(G1, "Respondent Similarity (Network 1)")
-    stats2 = descriptive_stats(G2, "Statement Co-Endorsement (Network 2)")
+    clusters = pd.Series(stmt_part).groupby(pd.Series(stmt_part)).apply(lambda s: sorted(s.index))
+    cluster_names = {}
+    for cid, members in clusters.items():
+        names = [name for anchor, name in THEME_ANCHORS.items() if anchor in members]
+        cluster_names[cid] = " / ".join(names) if names else "Mixed"
 
-    print("\n[3/6] Community detection and centrality …")
-    partition, modularity = detect_communities(G1, seed=42)
-    sizes = community_sizes(partition)
-    profile = community_opinion_profile(df, partition)
-    cent1 = centrality_analysis_n1(G1)
-    cent2 = centrality_analysis_n2(G2)
+    dom_corr = domain_scores(df).corr()
+    alpha = domain_reliability(df)
+    pca = principal_components(df, n_components=3)
+    pc2 = pca["loadings"]["PC2"]
+    pc2_scores = pca["scores"]["PC2"]
+    groups = df.index.to_series().map(partition)
+    pc2_by_comm = pc2_scores.groupby(groups).mean()
+    pc2_eta = eta_squared(pc2_scores, groups)
+    dup = item_pair_correlations(corr, DUPLICATE_PAIRS)
+    ev = design_choice_evidence(df_all, df, G1, sim, partition, summary)
+    split_vs_strength = summary["split"].corr(cent2["strength"])
+    neutral_rank = summary["neutral"].rank(ascending=False)
+    privacy_cluster = next(m for m in clusters if "T10" in m)
+    iu = np.triu_indices(len(dom_corr), 1)
+    pairs = [(dom_corr.index[i], dom_corr.columns[j], dom_corr.iat[i, j]) for i, j in zip(*iu)]
+    strongest, weakest = max(pairs, key=lambda p: p[2]), min(pairs, key=lambda p: p[2])
 
-    print("\n[4/6] Polarization and robustness analyses …")
-    pol = polarization_scores(df)
-    top_polar, top_consensus = top_polarizing_consensus(pol, n=5)
-    homophily = within_vs_across_variance(df, partition)
-    cos_vals = sim_cos.values[np.triu_indices_from(sim_cos.values, k=1)]
-    pear_vals = sim_pear.values[np.triu_indices_from(sim_pear.values, k=1)]
-    mask = ~np.isnan(cos_vals) & ~np.isnan(pear_vals)
-    cos_pear_corr = np.corrcoef(cos_vals[mask], pear_vals[mask])[0, 1]
+    # ── 4. Figures ───────────────────────────────────────────────────────────
+    print("[4/5] Drawing figures ...")
+    viz.plot_data_overview(df_all, dropped)
+    viz.plot_similarity_distribution(bias)
+    viz.plot_respondent_network(G1, partition, cent1)
+    viz.plot_statement_network(G2)
+    viz.plot_community_profiles(deviation, eta, text, sizes)
+    viz.plot_polarization(df, {
+        "Most split": list(polar.index),
+        "Rejected by the class": [c for c in rejected.index if c not in polar.index],
+        "Strongest consensus": list(consensus.index),
+    }, text)
+    viz.plot_robustness(null, k_sens, thr_sens, CORR_THRESHOLD)
+    viz.plot_domain_structure(dom_corr, alpha)
+    viz.plot_pc2(pc2, text)
 
-    k_sensitivity = respondent_k_sensitivity(df)
-    threshold_sensitivity = statement_threshold_sensitivity(df)
-    signed_summary = signed_network_summary(G2)
-    domain_matrix = domain_correlation_matrix(df)
-    statement_edge_summary = within_vs_across_statement_edges(G2)
-    pos_corr, neg_corr = top_statement_correlations(corr_matrix, n=10)
-    stability = community_stability_analysis(df, k=8, runs=6)
-    eta2_summary = eta_squared_explained_variance(df, partition)
-    polar_vs_pos = polarization_vs_network_position(G2, pol)
+    # ── 5. Report ────────────────────────────────────────────────────────────
+    print("[5/5] Writing report ...")
+    significant = null["p"] < 0.05
+    pc2_neg, pc2_pos = pc2.nsmallest(3).index, pc2.nlargest(3).index
+    open_comm, control_comm = pc2_by_comm.idxmin(), pc2_by_comm.idxmax()
+    top_split = polar.iloc[0]
+    e03 = summary.loc["E03"]
+    reliab_low = alpha[alpha < 0.7]
+    straightliners = flags[flags["flags"].str.contains("straight")]["respondent"].tolist()
+    dissenters = flags[flags["flags"].str.contains("dissenter")]["respondent"].tolist()
+    neutrals = flags[flags["flags"].str.contains("neutral")]["respondent"].tolist()
 
-    print("\n[5/6] Saving visualizations …")
-    edge_weights = [d.get("weight", 0.0) for _, _, d in G1.edges(data=True)]
-    effective_threshold = min(edge_weights) if edge_weights else 0.0
-    plot_similarity_distribution(sim_cos, threshold=effective_threshold)
-    plot_respondent_network(G1, partition, cent1)
-    plot_statement_network(G2)
-    plot_polarization_bars(top_polar, top_consensus, code_to_text)
-    plot_community_heatmap(profile)
-    plot_degree_distribution(G1)
-    plot_k_sensitivity(k_sensitivity)
-    plot_threshold_sensitivity(threshold_sensitivity)
-    plot_domain_correlation_heatmap(domain_matrix)
-    plot_polarization_vs_centrality(polar_vs_pos)
+    L = []
+    add = L.append
+    add("# Opinion Network Formation from Class Survey Responses")
+    add("")
+    add(f"**Team Name:** {TEAM_NAME}")
+    add("")
+    add(f"**GitHub Repository:** [{REPO_URL.split('github.com/')[1]}]({REPO_URL})")
+    add("")
+    add("---")
+    add("")
+    add("## Summary")
+    add("")
+    add(f"We model a {df_all.shape[1]}-statement Likert survey (Technology, Education, Ethics, Environment) as two networks: "
+        f"a **respondent network** (who thinks alike) and a **statement network** (which opinions travel together). Key findings:")
+    add("")
+    add(f"- **A consensus class.** {pct(share_agree)} of all answers are Agree/Strongly Agree. Environment and Ethics are near-unanimous; disagreement is concentrated in a handful of Education and Technology statements.")
+    add(f"- **No distinct opinion camps.** Respondent communities (Q = {Q:.3f}) are {'only marginally' if not significant else 'significantly'} stronger than in shuffled data "
+        f"(null Q = {null['null_mean']:.3f} ± {null['null_std']:.3f}, p = {null['p']:.2f}) and change between runs (ARI ≈ {stability['subsample_ari_mean']:.2f}). Opinions vary along a continuum, not in blocs.")
+    add(f"- **The clearest axis of disagreement:** support for regulation and traditional structure ({', '.join(pc2_pos)}) versus open, flexible learning ({', '.join(pc2_neg)}). All {len(neg)} negative statement correlations involve Education.")
+    add(f"- **Themes cut across domains.** {pct(cross_share)} of statement edges link different domains; the statement network forms {len(clusters)} cross-domain clusters, including a *digital rights & AI regulation* cluster.")
+    add("")
 
-    print("\n[6/6] Writing report and saving results …")
-    report_md = _build_report_markdown(
-        df, code_to_text, stats1, stats2, partition, profile, cent1, cent2,
-        top_polar, top_consensus, homophily, cos_pear_corr, k_sensitivity,
-        threshold_sensitivity, signed_summary, domain_matrix, statement_edge_summary,
-        stability, eta2_summary, polar_vs_pos,
-    )
+    # 1. Dataset
+    add("## 1. Dataset Documentation")
+    add("")
+    add("| Item | Value |")
+    add("|---|---|")
+    add(f"| Raw responses | {n_all} respondents × {df_all.shape[1]} statements (15 per domain: T, E, S, V) |")
+    add("| Encoding | Strongly Disagree = −2, Disagree = −1, Neutral = 0, Agree = +1, Strongly Agree = +2 |")
+    add(f"| Missing cells | {missing['total_missing']} of {missing['total_cells']} ({pct(missing['total_missing'] / missing['total_cells'], 1)}): {missing['blank']} blank, {missing['no_comments']} “No Comments” |")
+    add(f"| Excluded respondents | {len(dropped)} answered < {MIN_ANSWERED} statements: {int((dropped['answered'] == 0).sum())} blank forms, {int((dropped['domains_answered'] == 'T').sum())} stopped after the Technology page |")
+    add(f"| Analysed | **{n} respondents**, {nc_after} missing cells ({pct(nc_after / df.size, 1)}) |")
+    add(f"| Answer mix (analysed) | {pct(share_agree)} agree · {pct(share_neutral)} neutral · {pct(share_disagree)} disagree |")
+    add("")
+    add(f"- **Missingness is dropout, not item refusal.** All {missing['blank']} blank cells come from respondents who abandoned the form (4 stopped exactly after the Technology block, consistent with a form paged by domain). "
+        f"Only the {missing['no_comments']} “No Comments” are deliberate skips. Both are kept as NaN, never as Neutral; similarities use only statements both respondents answered. "
+        f"{len(partial)} partially complete respondents with ≥ {MIN_ANSWERED} answers are retained.")
+    add(f"- **Strong agreement bias.** Mean answers are high in every domain, so raw similarity would mainly measure *how much* someone agrees. This motivates centring (Section 2).")
+    add(f"- **Response-style flags (retained, reported).** {len(straightliners)} respondents gave the same answer to ≥ 75% of statements; "
+        + (f"#{', #'.join(map(str, dissenters))} is a net dissenter (mean below zero); " if dissenters else "")
+        + (f"#{', #'.join(map(str, neutrals))} answered mostly Neutral. " if neutrals else "")
+        + "These may be genuine views or low-effort answers.")
+    add(f"- **Consistency check.** Near-duplicate statements in different domains correlate positively: "
+        + "; ".join(f"{r.u}–{r.v} r = {r.r:.2f}" for r in dup.itertuples()) + ", suggesting answers are coherent.")
+    add("")
+    add(f"![Figure 1: (a) Answer distribution by domain. (b) Statements answered per respondent; the {len(dropped)} excluded respondents are orange.](figures/fig1_data_overview.png)")
+    add("")
+
+    # 2. Pipeline
+    add("## 2. Pipeline Followed")
+    add("")
+    add("| | Network 1: Respondents | Network 2: Statements |")
+    add("|---|---|---|")
+    add(f"| Nodes | {n} respondents | {df.shape[1]} statements |")
+    add("| Similarity | Row-centred cosine over shared statements (≥ 5) | Pearson r across respondents (pairwise complete) |")
+    add(f"| Edges | k-nearest neighbours, k = {K} (positive similarity only) | abs(r) ≥ {CORR_THRESHOLD:.2f}, signed (+ co-endorsement, − opposition) |")
+    add("| Edge weight | similarity | abs(r) |")
+    add("| Path distance | 1 / similarity | 1 / r, positive edges only |")
+    add("")
+    add(f"1. **Clean.** Encode Likert answers, keep missing as NaN, and drop the {len(dropped)} respondents with < {MIN_ANSWERED} answers (otherwise they appear as isolated nodes and fake communities).")
+    add(f"2. **Respondent similarity.** Subtract each respondent's mean answer, then take cosine similarity over shared statements. Centring also weakens the link between a node's degree and its agreement level (r = {bias['raw']['degree_vs_mean_answer_r']:.2f} → {bias['centred']['degree_vs_mean_answer_r']:.2f}; Figure 2).")
+    add(f"3. **Sparsify.** Link each respondent to its {K} most similar peers. Similarity stays the edge weight; shortest paths use distance = 1/similarity, so strong ties are short.")
+    add(f"4. **Statement network.** Keep abs(r) ≥ {CORR_THRESHOLD:.2f} (p ≈ {thr_row['p_value']:.3f} at n = {n}). Negative edges are kept for interpretation but excluded from path metrics and community detection, since opposition is not proximity.")
+    add(f"5. **Analyse.** Louvain communities tested against {NULL_RUNS} shuffled datasets and for stability; centrality; η² (variance explained by community); a split index for polarization; PCA and Cronbach's α for domain structure; sensitivity to k and threshold.")
+    add("")
+    add("### Design choices and why")
+    add("")
+    add("Each choice was compared with the obvious alternative on this dataset. The last column gives the evidence.")
+    add("")
+    thr_iso = thr_sens.set_index("threshold")["isolates"]
+    thr_chance = thr_sens.set_index("threshold")["expected_false_edges"]
+    add("| Decision | Chosen | Instead of | Why / benefit (evidence from this data) |")
+    add("|---|---|---|---|")
+    add(f"| Missing answers | NaN, pairwise-complete | Code as Neutral | A blank is not an opinion. Coding blanks as Neutral would raise the Neutral share from {pct(ev['neutral_share_true'])} to {pct(ev['neutral_share_if_blank_neutral'])} and invent {missing['blank']} answers. |")
+    add(f"| Incomplete forms | Exclude < {MIN_ANSWERED} answers | Impute | Imputing 45–60 of 60 answers fabricates a profile; kept as-is, the {int((dropped['answered'] == 0).sum())} blank forms become isolated nodes and fake communities. |")
+    add(f"| Respondent similarity | Row-centred cosine | Raw cosine, Euclidean | Compares *which* statements a person favours, not how much they agree: mean similarity {bias['raw']['mean_similarity']:.2f} → {bias['centred']['mean_similarity']:.2f}. Euclidean distance also grows with the number of shared answers. |")
+    add(f"| Sparsification | k-NN, k = {K} | Global similarity threshold | A threshold with the same edge count leaves {ev['threshold_isolates']} respondents isolated ({ev['threshold_components']} components); k-NN gives every respondent ≥ k neighbours and is connected from k = {ev['min_connected_k']}. k ≈ √n, mid-range of the tested 5–12. |")
+    add(f"| Path cost | 1 / similarity | 1 − similarity, hops | Keeps strong ties short while penalising weak ties; betweenness ranks barely change with 1 − similarity (ρ = {ev['betweenness_rank_rho_inv_vs_one_minus']:.2f}), so results do not hinge on it. |")
+    add(f"| Communities | Louvain | Greedy, label propagation, Girvan–Newman | Fast, weighted modularity optimisation. Greedy modularity reaches similar Q ({ev['greedy_q']:.2f}, {ev['greedy_n']} groups) but a different split (ARI {ev['greedy_ari']:.2f}); label propagation finds {ev['lpa_n']} community — consistent with weak structure. Girvan–Newman is O(m²n) with no natural stopping point. |")
+    add(f"| Significance | Shuffled-answer null model | Raw Q, configuration model | k-NN graphs are modular by construction (null Q = {null['null_mean']:.2f}). Shuffling keeps every statement's answer distribution and the full pipeline, so it tests exactly whether *combinations* of opinions cluster. |")
+    add(f"| Partition agreement | ARI | NMI | Chance-corrected: unrelated partitions of the same sizes give ARI ≈ {abs(ev['random_ari']):.2f} but NMI {ev['random_nmi']:.2f}, which rewards chance overlap. |")
+    add(f"| Statement association | Signed Pearson r | Spearman; abs(r) | Spearman agrees closely (r = {ev['pearson_spearman_r']:.2f} over all pairs). Keeping the sign separates opposition from co-endorsement; abs(r) would have merged the {len(neg)} Education tensions into clusters. |")
+    add(f"| Edge threshold | abs(r) ≥ {CORR_THRESHOLD:.2f} | 0.20 or 0.40 | ~{thr_chance[CORR_THRESHOLD]:.0f} chance edges ({thr_row['expected_false_edges'] / thr_row['edges']:.0%}) vs ~{thr_chance[0.20]:.0f} at 0.20; 0.40 isolates {int(thr_iso[0.40])} statements. |")
+    add(f"| Centrality | Betweenness (on distance) | Degree, eigenvector | In k-NN every degree ≥ k by construction; eigenvector centrality tracks agreement level more (r = {ev['eigenvector_vs_agreement_r']:.2f}) than betweenness does (r = {ev['betweenness_vs_agreement_r']:.2f}). Betweenness captures bridging. |")
+    add(f"| Polarization | Split index | Variance | Variance ranks E03 #{ev['variance_rank']['E03']} most polarizing although {pct(summary.loc['E03', 'disagree'])} reject it; the split index is high only when both camps are large and reads directly in %. |")
+    add(f"| Community profile | η² per statement | Domain averages | Size-weighted 0–1 effect size, comparable across statements; domain averages mix opposing statements (Education α = {alpha['E']:.2f}). |")
+    add("| Domain validity | Cronbach's α, PCA | Assume domains coherent | Tests whether a domain average is meaningful; PCA separates general agreement (PC1) from substantive disagreement (PC2). |")
+    add("")
+    add(f"**Reproducibility.** One command (`python notebooks/full_pipeline.py`) regenerates every number, table and figure from the raw CSV with fixed seeds. Unit tests check the similarity, η², split-index and filtering maths, and all results are exported to `results.json`.")
+    add("")
+    add("![Figure 2: Pairwise respondent similarity before and after centring each respondent's answers.](figures/fig2_similarity_distribution.png)")
+    add("")
+
+    # 3. Analysis
+    add("## 3. Analysis and Visualizations")
+    add("")
+    add("### 3.1 Network-level metrics")
+    add("")
+    add("| Metric | Respondent network | Statement network (positive edges) |")
+    add("|---|---:|---:|")
+    for label, key in [("Nodes", "nodes"), ("Edges", "edges"), ("Density", "density"), ("Average degree", "avg_degree"),
+                       ("Weighted clustering", "clustering"), ("Clustering ÷ random-graph expectation", "clustering_vs_random"),
+                       ("Connected components", "components"),
+                       ("Largest component", "lcc_nodes"), ("Avg. shortest path (hops)", "avg_path_hops"),
+                       ("Diameter (hops)", "diameter_hops"), ("Avg. path length (distance units)", "avg_path_distance")]:
+        add(f"| {label} | {stats1[key]} | {stats2[key]} |")
+    add("")
+    add(f"Paths are short in both networks (about {stats1['avg_path_hops']:.0f} hops). Clustering is {stats1['clustering_vs_random']:.1f}× (respondents) and {stats2['clustering_vs_random']:.1f}× (statements) what a random graph of the same density would give, so similar opinions form local triangles rather than random links. "
+        f"After cleaning, the respondent network is a single component. "
+        f"In the statement network {len(stats2['isolates'])} statements have no positive link; see Section 3.3.")
+    add("")
+
+    add("### 3.2 Respondent communities")
+    add("")
+    add(f"- Louvain finds **{len(sizes)} communities** (sizes {', '.join(map(str, sizes.values))}), Q = {Q:.3f}.")
+    add(f"- **Null model:** networks from shuffled answers give Q = {null['null_mean']:.3f} ± {null['null_std']:.3f} (z = {null['z']:.1f}, p = {null['p']:.2f}). "
+        + ("The observed structure is **not significantly stronger than chance**, because k-NN graphs are modular by construction." if not significant
+           else "The observed structure is significantly stronger than chance."))
+    add(f"- **Stability:** agreement with the main partition is ARI = {stability['seed_ari_mean']:.2f} across Louvain seeds and {stability['subsample_ari_mean']:.2f} ± {stability['subsample_ari_std']:.2f} when 10% of respondents are removed. Communities are soft groupings.")
+    add(f"- **What differs between them:** community membership explains most variance for {', '.join(top_eta[:4])} (η² = {eta.iloc[3]:.2f}–{eta.iloc[0]:.2f}; mean η² by domain: "
+        + ", ".join(f"{d} {eta_domain[d]:.2f}" for d in DOMAINS) + "). No community disagrees with the class overall; they differ in emphasis.")
+    add(f"- The groups line up with the opinion axis of Section 3.5: community C{open_comm} leans towards open learning (mean PC2 score {pc2_by_comm[open_comm]:+.2f}) and C{control_comm} towards regulation and structure ({pc2_by_comm[control_comm]:+.2f}); community explains η² = {pc2_eta:.2f} of that axis.")
+    add(f"- **Centrality:** the most central respondents by betweenness are #{', #'.join(map(str, cent1.index[:3]))}. Their positions are structural (bridging similar-minded groups), not a measure of influence.")
+    add("")
+    add("![Figure 3: Respondent network (k = 8, centred cosine). Colour and shape show Louvain community; node size shows betweenness.](figures/fig3_respondent_network.png)")
+    add("")
+    add("![Figure 5: Community mean minus class mean on the ten statements that best separate communities (highest η²). Blue = more agreement, red = less.](figures/fig5_community_profiles.png)")
+    add("")
+
+    add("### 3.3 Statement network")
+    add("")
+    add(f"- **Signs:** {int(stats2['edges'])} positive and {len(neg)} negative edges. Every negative edge involves an Education statement:")
+    add("")
+    add("| Statement A | Statement B | r |")
+    add("|---|---|---:|")
+    for r in neg.itertuples():
+        add(f"| {short(r.u, text, 55)} | {short(r.v, text, 55)} | {r.r:.2f} |")
+    add("")
+    add(f"- **Cross-domain themes:** {pct(cross_share)} of edges connect different domains. Louvain on positive edges gives {len(clusters)} clusters (Q = {stmt_q:.2f}), "
+        f"much more modular than the domain labels themselves (Q = {domain_q:.2f}; ARI with domains = {stmt_ari:.2f}):")
+    add("")
+    add("| Cluster | Theme | Statements |")
+    add("|---|---|---|")
+    for cid, members in clusters.items():
+        add(f"| {cid} | {cluster_names[cid]} | {', '.join(members)} |")
+    add("")
+    uncertain = [c for c in signed_isolates if neutral_rank[c] <= 5]
+    add(f"- **Unconnected statements:** {', '.join(signed_isolates)} have no edge at all. "
+        f"{', '.join(c + ' (' + pct(summary.loc[c, 'neutral']) + ' Neutral)' for c in uncertain)} are among the five most-Neutral statements in the survey: uncertainty, not conviction, dominates them. "
+        + (f"{', '.join(positive_only_isolates)} connect only through negative edges." if positive_only_isolates else ""))
+    add(f"- **Bridges:** highest betweenness: {', '.join(short(c, text, 45) for c in cent2.index[:3])}. "
+        f"Divisive statements sit at the periphery (split index vs weighted degree r = {split_vs_strength:.2f}).")
+    add("")
+    add("![Figure 4: Statement network (abs(r) ≥ 0.30). Colour shows domain (also the code letter); red edges are negative correlations; unconnected statements are shown along the bottom.](figures/fig4_statement_network.png)")
+    add("")
+
+    add("### 3.4 Polarization and consensus")
+    add("")
+    add("Variance mixes a split class with a lopsided one, so we rank polarization by the **split index = min(% agree, % disagree)**, which is high only when both camps are large.")
+    add("")
+    add("| Group | Statement | Disagree | Neutral | Agree | Mean |")
+    add("|---|---|---:|---:|---:|---:|")
+    for title, frame in (("Most split", polar), ("Rejected", rejected.drop(polar.index, errors="ignore")), ("Consensus", consensus)):
+        for code, r in frame.iterrows():
+            add(f"| {title} | {short(code, text, 60)} | {pct(r.disagree)} | {pct(r.neutral)} | {pct(r.agree)} | {r['mean']:+.2f} |")
+    add("")
+    add(f"- Only {int((summary['split'] >= 0.2).sum())} statements have ≥ 20% on both sides; the most divisive is {short(top_split.name, text, 60)} ({pct(top_split.agree)} agree vs {pct(top_split.disagree)} disagree).")
+    add(f"- **E03 is a consensus, not a split:** {pct(e03.disagree)} reject compulsory attendance. High variance alone would have mislabelled it as polarizing.")
+    add("")
+    add("![Figure 6: Answer distributions for the most split, rejected and consensus statements.](figures/fig6_polarization.png)")
+    add("")
+
+    add("### 3.5 Domain structure and the clearest opinion axis")
+    add("")
+    add(f"- **Domain scores correlate positively.** Strongest {strongest[0]}–{strongest[1]} (r = {strongest[2]:.2f}), weakest {weakest[0]}–{weakest[1]} (r = {weakest[2]:.2f}).")
+    add(f"- **Reliability:** Cronbach's α = " + ", ".join(f"{d} {alpha[d]:.2f}" for d in DOMAINS) + ". "
+        + (f"{' and '.join(CATEGORY_LABELS[d] for d in reliab_low.index)} fall below 0.70: they mix opposing positions (e.g. exams and attendance vs project-based and online learning), so a single domain average hides the real disagreement." if len(reliab_low) else ""))
+    add(f"- **PCA:** PC1 ({pct(pca['explained'][0], 1)} of variance) is general agreement ({pct(pca['pc1_same_sign_share'])} of loadings share a sign; r = {pca['pc1_vs_mean_answer_r']:.2f} with mean answer). "
+        f"**PC2 ({pct(pca['explained'][1], 1)}) is the clearest substantive axis:** {', '.join(short(c, text, 40) for c in pc2_pos)} versus {', '.join(short(c, text, 40) for c in pc2_neg)}. "
+        f"It is only slightly larger than PC3 ({pct(pca['explained'][2], 1)}), so beyond general agreement opinions are weakly structured; PC2 stands out because it matches the negative edges and the community differences.")
+    add("")
+    add("![Figure 8: (a) Correlation between respondents' domain scores. (b) Internal consistency of each domain.](figures/fig8_domain_structure.png)")
+    add("")
+    add(f"![Figure 9: Statements with the largest loadings on the second principal component ({pct(pca['explained'][1], 1)} of variance).](figures/fig9_pc2_loadings.png)")
+    add("")
+
+    add("### 3.6 Robustness")
+    add("")
+    k_q = k_sens.set_index("k")["modularity"]
+    add(f"- **k:** modularity falls steadily from {k_q.iloc[0]:.2f} (k = {k_q.index[0]}) to {k_q.iloc[-1]:.2f} (k = {k_q.index[-1]}); partitions at other k agree only moderately with k = {K} (ARI {k_sens.loc[k_sens['k'] != K, 'ari_vs_k8'].min():.2f}–{k_sens.loc[k_sens['k'] != K, 'ari_vs_k8'].max():.2f}), consistent with weak communities.")
+    add(f"- **Threshold:** edges drop from {int(thr_sens['edges'].iloc[0])} at 0.20 (~{thr_sens['expected_false_edges'].iloc[0]:.0f} expected chance edges) to {int(thr_sens['edges'].iloc[-1])} at 0.50. "
+        f"{CORR_THRESHOLD:.2f} keeps the network largely connected while limiting chance edges to ~{thr_row['expected_false_edges'] / thr_row['edges']:.0%}.")
+    add(f"- **Similarity choice:** raw and centred cosine give different partitions (ARI = {bias['partition_ari']:.2f}), another sign that respondent communities depend on modelling choices, whereas the statement-level findings are stable.")
+    add("")
+    add("![Figure 7: (a) Observed modularity vs shuffled-data null model. (b) Respondent network across k. (c) Statement network across thresholds (log scale).](figures/fig7_robustness.png)")
+    add("")
+
+    # 4. Discussion
+    add("## 4. Results and Discussion")
+    add("")
+    add(f"1. **The class largely agrees.** Environmental and ethical statements (accountability, sustainability, inclusion) have the strongest consensus and the most internally consistent domains (α ≥ {alpha[['S', 'V']].min():.2f}).")
+    add(f"2. **Disagreement follows one recognisable axis.** Beneath the shared optimism, the main difference is attitude to control: regulating AI and protecting data, exams and compulsory attendance, versus online, project-based and collaborative learning. Education holds all {len(neg)} opposing edges and the most split statements.")
+    add(f"3. **The network shows a continuum, not camps.** Communities are no stronger than in shuffled data and are unstable. Respondents differ by degree along the axis above, not by belonging to opposing groups. Averages alone could not show this; the null model makes it explicit.")
+    add(f"4. **Opinions organise by theme, not survey section.** Most statement links cross domains, e.g. data privacy and AI regulation form one cluster ({', '.join(privacy_cluster)}). The four-domain survey layout does not match how respondents actually group issues.")
+    add(f"5. **Uncertain topics stay disconnected.** Statements with many Neutral answers (AI diagnosis, autonomous vehicles, research vs infrastructure spending) do not correlate with anything, suggesting unformed rather than divided opinions.")
+    add("")
+    add("### Limitations")
+    add("")
+    add(f"- Small, self-selected class sample (n = {n}); strong agreement bias compresses the usable scale.")
+    add("- Likert data are ordinal; Pearson r and cosine treat them as interval.")
+    add(f"- k, threshold and similarity choices shape the respondent network; communities in particular are not robust.")
+    add("- η² for communities is descriptive: communities are built from the same answers, so it is optimistic.")
+    add(f"- Beyond general agreement the data are weakly structured (PC2 {pct(pca['explained'][1], 1)} vs PC3 {pct(pca['explained'][2], 1)} of variance).")
+    add("- Edges are associations, not causal or social ties; centrality is not real-world influence.")
+    add("")
+    add("### Conclusion")
+    add("")
+    add("The survey describes a broadly like-minded class whose meaningful disagreement is concentrated along one axis: structure and regulation versus openness and flexibility, expressed mostly through Education. Network analysis reveals this cross-domain structure. Significance and robustness checks show where the network is informative (statement associations) and where it is not (respondent communities).")
+    add("")
+
+    # 5. Contributions
+    add("## 5. Individual Contributions")
+    add("")
+    for name, task in CONTRIBUTIONS.items():
+        add(f"- **{name}:** {task}")
+    add("")
+
     report_path = Path("output/report.md")
-    report_path.write_text(report_md, encoding="utf-8")
+    report_path.write_text("\n".join(L), encoding="utf-8")
     build_pdf(report_path, Path("output/report.pdf"))
 
     results = {
-        "n_respondents": int(df.shape[0]),
-        "n_statements": int(df.shape[1]),
-        "total_cells": int(df.shape[0] * df.shape[1]),
-        "missing_cells": int(df.isna().sum().sum()),
-        "missing_pct": round(df.isna().sum().sum() / (df.shape[0] * df.shape[1]) * 100, 2),
-        "stats_n1": stats1,
-        "stats_n2": stats2,
-        "modularity": modularity,
-        "n_communities": len(sizes),
-        "community_sizes": sizes.to_dict(),
-        "profile": profile.to_dict(),
-        "top5_polarizing": {idx: {"var": round(row["variance"], 3), "mean": round(row["mean"], 3)} for idx, row in top_polar.iterrows()},
-        "top5_consensus": {idx: {"var": round(row["variance"], 3), "mean": round(row["mean"], 3)} for idx, row in top_consensus.iterrows()},
-        "cos_pear_corr": round(float(cos_pear_corr), 4),
-        "k_sensitivity": k_sensitivity.to_dict(orient="records"),
-        "threshold_sensitivity": threshold_sensitivity.to_dict(orient="records"),
-        "signed_summary": signed_summary,
-        "domain_matrix": domain_matrix.round(4).to_dict(),
-        "statement_edge_summary": statement_edge_summary.to_dict(),
-        "community_stability": stability,
-        "eta_squared": eta2_summary.to_dict(orient="records"),
-        "polarization_vs_centrality": polar_vs_pos.to_dict(orient="records"),
+        "respondents_raw": n_all, "respondents_analysed": n, "statements": df.shape[1],
+        "missing": missing, "dropped_respondents": dropped.reset_index().to_dict("records"),
+        "response_style_flags": flags.to_dict("records"),
+        "answer_shares": {"agree": share_agree, "neutral": share_neutral, "disagree": share_disagree},
+        "respondent_network": {**stats1, "k": K},
+        "statement_network": {**stats2, "threshold": CORR_THRESHOLD, "negative_edges": neg.to_dict("records"),
+                              "signed_isolates": signed_isolates, "cross_domain_share": cross_share},
+        "communities": {"modularity": Q, "sizes": sizes.to_dict(), "partition": partition,
+                        "null_model": {k: v for k, v in null.items() if k != "null_q"}, "stability": stability,
+                        "eta_squared_by_domain": eta_domain.to_dict(), "top_eta_squared": eta.head(10).to_dict(),
+                        "pc2_mean_by_community": pc2_by_comm.to_dict(), "pc2_eta_squared": pc2_eta},
+        "agreement_bias": {lab: {k: v for k, v in bias[lab].items() if k != "similarities"} for lab in ("raw", "centred")}
+                          | {"partition_ari": bias["partition_ari"]},
+        "k_sensitivity": k_sens.to_dict("records"),
+        "threshold_sensitivity": thr_sens.to_dict("records"),
+        "statement_clusters": {f"{cid}: {cluster_names[cid]}": m for cid, m in clusters.items()},
+        "statement_cluster_modularity": stmt_q, "domain_label_modularity": domain_q, "cluster_vs_domain_ari": stmt_ari,
+        "respondent_centrality_top10": cent1.head(10).reset_index(names="respondent").to_dict("records"),
+        "statement_centrality": cent2.reset_index(names="statement").to_dict("records"),
+        "statement_summary": summary.reset_index(names="statement").to_dict("records"),
+        "domain_correlation": dom_corr.to_dict(), "cronbach_alpha": alpha.to_dict(),
+        "design_choice_evidence": {k: v for k, v in ev.items() if k != "variance_rank"},
+        "pca": {"explained": pca["explained"], "pc1_vs_mean_answer_r": pca["pc1_vs_mean_answer_r"],
+                "loadings": pca["loadings"].to_dict()},
     }
-    Path("output/results.json").write_text(json.dumps(results, indent=2, default=str), encoding="utf-8")
-
-    print("\n" + "=" * 70)
-    print("  Pipeline complete! All figures and PDF were regenerated from current data.")
-    print("=" * 70)
+    Path("output/results.json").write_text(json.dumps(results, indent=2, default=float), encoding="utf-8")
+    print("Done: output/report.pdf, output/results.json, output/figures/")
 
 
 if __name__ == "__main__":

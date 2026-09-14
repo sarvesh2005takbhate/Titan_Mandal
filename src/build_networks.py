@@ -1,29 +1,27 @@
 """
 build_networks.py — Construct the two complementary networks.
 
-Network 1: Respondent Similarity Network (nodes = respondents, edges = cosine similarity).
-Network 2: Statement Co-Endorsement Network (nodes = statements, edges = Pearson correlation).
+Network 1: Respondent Similarity Network (nodes = respondents, edges = k-NN on
+           row-centred cosine similarity).
+Network 2: Statement Association Network (nodes = statements, edges = signed
+           Pearson correlation above a threshold).
 """
 
 import numpy as np
 import pandas as pd
 import networkx as nx
-from sklearn.metrics.pairwise import cosine_similarity
-from scipy.stats import pearsonr
 from src.data_prep import get_category
+
+MIN_SHARED_ITEMS = 5
 
 
 def distance_from_similarity(similarity: float) -> float:
-    """Convert a positive similarity to a shortest-path distance.
+    """Convert a positive similarity to a shortest-path distance (1 / similarity).
 
-    Cosine similarity is a similarity score, not a path cost. For graph-theoretic
-    shortest paths we use a monotone transformation with smaller values meaning
-    stronger similarity. We keep the original similarity value as an edge attribute
-    for interpretation and store the transformed distance separately.
+    Similarity is a strength, not a path cost. Non-positive similarities never
+    connect nodes, so their distance is infinite.
     """
-    if pd.isna(similarity):
-        return np.inf
-    if similarity <= 0:
+    if pd.isna(similarity) or similarity <= 0:
         return np.inf
     return 1.0 / float(similarity)
 
@@ -32,178 +30,81 @@ def distance_from_similarity(similarity: float) -> float:
 #  Network 1 — Respondent Similarity
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _pairwise_cosine(df: pd.DataFrame) -> pd.DataFrame:
+def pairwise_cosine(df: pd.DataFrame, center: bool = True) -> pd.DataFrame:
     """
-    Compute pairwise cosine similarity between rows, handling NaN
-    by pairwise-complete observation (only columns both rows answered).
-    Vectorized for high performance.
+    Pairwise cosine similarity between rows using only statements both rows answered.
+
+    center=True subtracts each respondent's own mean answer first. With ~80 % of
+    all answers being Agree/Strongly Agree, raw cosine mostly measures *how much*
+    someone agrees; centring compares *which* statements they favour.
     """
-    n = len(df)
-    ids = df.index.tolist()
-    mat = df.values.astype(float)
+    mat = df.to_numpy(dtype=float)
+    if center:
+        mat = mat - np.nanmean(mat, axis=1, keepdims=True)
 
-    nan_mask = np.isnan(mat)
-    valid_mat = np.nan_to_num(mat, nan=0.0)
-    presence = (~nan_mask).astype(float)
+    presence = (~np.isnan(mat)).astype(float)
+    values = np.nan_to_num(mat, nan=0.0)
 
-    shared_counts = presence @ presence.T
-    dots = valid_mat @ valid_mat.T
-    sq_norms = (valid_mat ** 2) @ presence.T
+    shared = presence @ presence.T
+    dots = values @ values.T
+    sq_norms = (values ** 2) @ presence.T          # |x_i|² over items j also answered
+    denoms = np.sqrt(sq_norms) * np.sqrt(sq_norms.T)
 
-    norms_i = np.sqrt(sq_norms)
-    norms_j = np.sqrt(sq_norms.T)
-    denoms = norms_i * norms_j
-
-    sim = np.full((n, n), np.nan)
-    valid_pairs = (shared_counts >= 5) & (denoms > 0)
-    sim[valid_pairs] = dots[valid_pairs] / denoms[valid_pairs]
+    sim = np.full(dots.shape, np.nan)
+    valid = (shared >= MIN_SHARED_ITEMS) & (denoms > 0)
+    sim[valid] = dots[valid] / denoms[valid]
     np.fill_diagonal(sim, 1.0)
-    return pd.DataFrame(sim, index=ids, columns=ids)
+    return pd.DataFrame(sim, index=df.index, columns=df.index)
 
 
-def _pairwise_pearson(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Pairwise Pearson correlation between rows (pairwise-complete).
-    Vectorized for high performance.
-    """
-    n = len(df)
-    ids = df.index.tolist()
-    mat = df.values.astype(float)
-
-    nan_mask = np.isnan(mat)
-    valid_mat = np.nan_to_num(mat, nan=0.0)
-    presence = (~nan_mask).astype(float)
-
-    shared_counts = presence @ presence.T
-    sum_x = valid_mat @ presence.T
-    sum_y = sum_x.T
-
-    mean_x = np.where(shared_counts >= 5, sum_x / np.maximum(shared_counts, 1), 0)
-    mean_y = mean_x.T
-
-    # sum((x - mean_x)*(y - mean_y)) = sum(x*y) - mean_y*sum(x) - mean_x*sum(y) + mean_x*mean_y*n
-    dots = valid_mat @ valid_mat.T
-    cov = dots - mean_y * sum_x - mean_x * sum_y + mean_x * mean_y * shared_counts
-
-    sum_x2 = (valid_mat ** 2) @ presence.T
-    var_x = sum_x2 - 2 * mean_x * sum_x + (mean_x ** 2) * shared_counts
-    var_y = var_x.T
-
-    std_x = np.sqrt(np.maximum(var_x, 0))
-    std_y = np.sqrt(np.maximum(var_y, 0))
-    denoms = std_x * std_y
-
-    corr = np.full((n, n), np.nan)
-    valid_pairs = (shared_counts >= 5) & (denoms > 0)
-    corr[valid_pairs] = cov[valid_pairs] / denoms[valid_pairs]
-    np.fill_diagonal(corr, 1.0)
-    return pd.DataFrame(corr, index=ids, columns=ids)
-
-
-def build_respondent_network(
-    df: pd.DataFrame,
-    k: int = 8,
-    method: str = "knn",
-    threshold: float | None = None,
-) -> tuple[nx.Graph, pd.DataFrame, pd.DataFrame]:
-    """
-    Build the respondent-similarity network.
-
-    Parameters
-    ----------
-    df : DataFrame  (respondents × statements, numeric with NaN)
-    k : int         Number of nearest neighbors (for knn method)
-    method : str    'knn' or 'threshold'
-    threshold : float  Similarity cutoff (for threshold method)
-
-    Returns
-    -------
-    G : networkx Graph  (undirected, weighted)
-    sim_cos : DataFrame  Full cosine similarity matrix
-    sim_pear : DataFrame Full Pearson matrix (robustness check)
-    """
-    print("  Computing pairwise cosine similarity …")
-    sim_cos = _pairwise_cosine(df)
-    print("  Computing pairwise Pearson correlation (robustness check) …")
-    sim_pear = _pairwise_pearson(df)
-
+def knn_graph(sim: pd.DataFrame, k: int = 8) -> nx.Graph:
+    """Connect every node to its k most similar (positive-similarity) neighbours."""
     G = nx.Graph()
-    ids = sim_cos.index.tolist()
-    G.add_nodes_from(ids)
+    G.add_nodes_from(sim.index)
+    for node in sim.index:
+        row = sim.loc[node].drop(node).dropna()
+        for nbr, w in row.nlargest(k).items():
+            if w > 0:
+                G.add_edge(node, nbr, weight=float(w), distance=distance_from_similarity(w))
+    return G
 
-    if method == "knn":
-        # For each node, connect to the k most similar neighbors.
-        # The graph stores both the original similarity and a distance cost derived
-        # from the similarity for shortest-path calculations.
-        for i, node_i in enumerate(ids):
-            row = sim_cos.loc[node_i].drop(node_i).dropna()
-            neighbors = row.nlargest(k)
-            for node_j, w in neighbors.items():
-                if w > 0:
-                    if G.has_edge(node_i, node_j):
-                        G[node_i][node_j]["similarity"] = max(G[node_i][node_j].get("similarity", 0.0), w)
-                    else:
-                        G.add_edge(node_i, node_j, similarity=w, distance=distance_from_similarity(w))
-                    G[node_i][node_j]["weight"] = G[node_i][node_j].get("similarity", w)
-    elif method == "threshold":
-        assert threshold is not None
-        for i, ni in enumerate(ids):
-            for j in range(i + 1, len(ids)):
-                nj = ids[j]
-                w = sim_cos.iloc[i, j]
-                if not np.isnan(w) and w >= threshold and w > 0:
-                    G.add_edge(ni, nj, similarity=w, distance=distance_from_similarity(w), weight=w)
-    else:
-        raise ValueError(f"Unknown method: {method}")
 
-    print(f"  Network 1 built: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
-    return G, sim_cos, sim_pear
+def build_respondent_network(df: pd.DataFrame, k: int = 8, center: bool = True) -> tuple[nx.Graph, pd.DataFrame]:
+    """Build the respondent k-NN similarity network. Returns (graph, similarity matrix)."""
+    sim = pairwise_cosine(df, center=center)
+    return knn_graph(sim, k=k), sim
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Network 2 — Statement Co-Endorsement
+#  Network 2 — Statement Association
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def build_statement_network(
-    df: pd.DataFrame,
-    corr_threshold: float = 0.3,
-) -> tuple[nx.Graph, pd.DataFrame]:
+def build_statement_network(df: pd.DataFrame, corr_threshold: float = 0.30) -> tuple[nx.Graph, pd.DataFrame]:
     """
-    Build the statement co-endorsement network.
+    Nodes = statements, edges where |Pearson r| ≥ corr_threshold (pairwise complete).
 
-    Nodes = 60 statements, edges = Pearson correlation between statement
-    columns (across respondents), kept where |r| > corr_threshold.
-    Edge attribute 'sign' = +1 or −1.
-
-    Returns
-    -------
-    G : networkx Graph
-    corr_matrix : DataFrame  full correlation matrix
+    Edge attributes: weight = |r|, correlation = r, sign = ±1.
+    Distance (1/r) is defined only for positive edges: a negative correlation means
+    opposition and must not act as a shortcut in shortest-path metrics.
     """
-    print("  Computing statement-wise Pearson correlation …")
-    # Use pandas .corr() which handles NaN with pairwise complete
-    corr_matrix = df.corr(method="pearson", min_periods=10)
-
+    corr = df.corr(method="pearson", min_periods=10)
     G = nx.Graph()
-    codes = corr_matrix.columns.tolist()
-    for code in codes:
+    for code in corr.columns:
         G.add_node(code, category=get_category(code))
 
+    codes = corr.columns
     for i, ci in enumerate(codes):
-        for j in range(i + 1, len(codes)):
-            cj = codes[j]
-            r = corr_matrix.loc[ci, cj]
+        for cj in codes[i + 1:]:
+            r = corr.loc[ci, cj]
             if pd.notna(r) and abs(r) >= corr_threshold:
-                strength = abs(r)
-                G.add_edge(
-                    ci,
-                    cj,
-                    weight=strength,
-                    similarity=strength,
-                    correlation=r,
-                    sign=1 if r > 0 else -1,
-                    distance=(1.0 / strength) if strength > 0 else np.inf,
-                )
+                G.add_edge(ci, cj, weight=abs(r), correlation=r, sign=int(np.sign(r)),
+                           distance=distance_from_similarity(r))
+    return G, corr
 
-    print(f"  Network 2 built: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
-    return G, corr_matrix
+
+def positive_subgraph(G: nx.Graph) -> nx.Graph:
+    """Keep all nodes but only positive (co-endorsement) edges."""
+    H = nx.Graph()
+    H.add_nodes_from(G.nodes(data=True))
+    H.add_edges_from((u, v, d) for u, v, d in G.edges(data=True) if d.get("sign", 1) > 0)
+    return H

@@ -1,272 +1,274 @@
-"""Advanced robustness and cross-domain analyses for the opinion network project."""
+"""advanced_analysis.py — Significance, robustness and cross-domain analyses."""
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import networkx as nx
-from sklearn.metrics import normalized_mutual_info_score
+from scipy import stats
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
-from src.data_prep import CATEGORY_LABELS, get_category
+from src.analysis import detect_communities
+from src.build_networks import build_respondent_network, build_statement_network, knn_graph, positive_subgraph
+from src.data_prep import DOMAINS, domain_columns
 
 
-def respondent_k_sensitivity(df_encoded: pd.DataFrame, ks=(5, 6, 8, 10, 12)) -> pd.DataFrame:
-    """Evaluate respondent-network structure across several k values."""
-    from src.build_networks import build_respondent_network
-    from src.analysis import detect_communities
+def _ari(p1: dict, p2: dict) -> float:
+    common = [n for n in p1 if n in p2]
+    return adjusted_rand_score([p1[n] for n in common], [p2[n] for n in common])
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Respondent network: is the community structure real?
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def modularity_null_model(df: pd.DataFrame, observed_q: float, k: int = 8, runs: int = 50, seed: int = 0) -> dict:
+    """
+    Compare observed modularity with networks built from shuffled data.
+
+    Each statement's answers are permuted independently across respondents: item
+    distributions are kept, but any consistent opinion profile is destroyed. k-NN
+    graphs are modular by construction, so this is the relevant baseline.
+    """
+    rng = np.random.default_rng(seed)
+    qs = []
+    for i in range(runs):
+        shuffled = df.apply(lambda col: pd.Series(rng.permutation(col.to_numpy()), index=col.index))
+        G, _ = build_respondent_network(shuffled, k=k)
+        qs.append(detect_communities(G, seed=i)[1])
+    qs = np.array(qs)
+    return {
+        "observed_q": observed_q,
+        "null_q": qs.tolist(),
+        "null_mean": round(float(qs.mean()), 4),
+        "null_std": round(float(qs.std()), 4),
+        "z": round(float((observed_q - qs.mean()) / qs.std()), 2),
+        "p": round(float((np.sum(qs >= observed_q) + 1) / (runs + 1)), 3),
+    }
+
+
+def community_stability(G: nx.Graph, df: pd.DataFrame, partition: dict, k: int = 8,
+                        runs: int = 20, subsample: float = 0.9, seed: int = 0) -> dict:
+    """
+    Two stability checks against the main partition:
+      * seed stability — same graph, different Louvain seeds
+      * data stability — rebuild the network from a random 90 % of respondents
+    """
+    rng = np.random.default_rng(seed)
+    seed_ari = [_ari(partition, detect_communities(G, seed=s)[0]) for s in range(100, 100 + runs)]
+    data_ari = []
+    for s in range(runs):
+        keep = rng.choice(df.index, size=int(subsample * len(df)), replace=False)
+        Gs, _ = build_respondent_network(df.loc[keep], k=k)
+        data_ari.append(_ari(partition, detect_communities(Gs, seed=s)[0]))
+    return {
+        "seed_ari_mean": round(float(np.mean(seed_ari)), 3),
+        "subsample_ari_mean": round(float(np.mean(data_ari)), 3),
+        "subsample_ari_std": round(float(np.std(data_ari)), 3),
+    }
+
+
+def agreement_bias_check(df: pd.DataFrame, k: int = 8) -> dict:
+    """
+    Raw vs row-centred cosine: how strongly does network position track a respondent's
+    overall agreement level, and do the two versions give the same communities?
+    """
+    mean_answer = df.mean(axis=1)
+    out = {}
+    parts = {}
+    for label, center in (("raw", False), ("centred", True)):
+        G, sim = build_respondent_network(df, k=k, center=center)
+        parts[label] = detect_communities(G)[0]
+        vals = sim.to_numpy()[np.triu_indices(len(sim), 1)]
+        out[label] = {
+            "mean_similarity": round(float(np.nanmean(vals)), 3),
+            "degree_vs_mean_answer_r": round(float(pd.Series(dict(G.degree())).corr(mean_answer)), 3),
+            "similarities": vals[~np.isnan(vals)],
+        }
+    out["partition_ari"] = round(_ari(parts["raw"], parts["centred"]), 3)
+    return out
+
+
+def respondent_k_sensitivity(df: pd.DataFrame, main_partition: dict, ks=(5, 6, 8, 10, 12)) -> pd.DataFrame:
+    """Network structure and agreement with the main (k=8) partition across k."""
     rows = []
     for k in ks:
-        G, _, _ = build_respondent_network(df_encoded, k=k, method="knn")
-        partition, modularity = detect_communities(G, seed=42)
+        G, _ = build_respondent_network(df, k=k)
+        part, q = detect_communities(G)
         rows.append({
             "k": k,
             "edges": G.number_of_edges(),
-            "density": round(nx.density(G), 4),
-            "avg_degree": round(np.mean([d for _, d in G.degree()]), 2),
-            "clustering": round(nx.average_clustering(G, weight="weight"), 4),
-            "components": nx.number_connected_components(G),
-            "lcc_nodes": max((len(c) for c in nx.connected_components(G)), default=0),
-            "modularity": round(modularity, 4),
-            "n_communities": len(set(partition.values())),
+            "clustering": round(nx.average_clustering(G, weight="weight"), 3),
+            "modularity": q,
+            "communities": len(set(part.values())),
+            "ari_vs_k8": round(_ari(main_partition, part), 3),
         })
     return pd.DataFrame(rows)
 
 
-def statement_threshold_sensitivity(df_encoded: pd.DataFrame, thresholds=(0.20, 0.30, 0.40, 0.50)) -> pd.DataFrame:
-    """Evaluate statement-network structure across Pearson thresholds."""
-    from src.build_networks import build_statement_network
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Statement network
+# ═══════════════════════════════════════════════════════════════════════════════
 
+def statement_threshold_sensitivity(df: pd.DataFrame, thresholds=(0.20, 0.25, 0.30, 0.35, 0.40, 0.50)) -> pd.DataFrame:
+    """Edges, signs, fragmentation and expected false-positive edges per |r| threshold."""
+    n_pairs = df.shape[1] * (df.shape[1] - 1) // 2
+    n_obs = int(df.notna().sum().median())
     rows = []
-    for threshold in thresholds:
-        G, _ = build_statement_network(df_encoded, corr_threshold=threshold)
-        pos_edges = sum(1 for _, _, d in G.edges(data=True) if d.get("sign", 1) > 0)
-        neg_edges = sum(1 for _, _, d in G.edges(data=True) if d.get("sign", 1) < 0)
-        lcc = G if nx.is_connected(G) else G.subgraph(max(nx.connected_components(G), key=len)).copy()
+    for t in thresholds:
+        G, _ = build_statement_network(df, corr_threshold=t)
+        tstat = t * np.sqrt((n_obs - 2) / (1 - t ** 2))
+        p = 2 * stats.t.sf(tstat, n_obs - 2)
         rows.append({
-            "threshold": threshold,
+            "threshold": t,
             "edges": G.number_of_edges(),
-            "density": round(nx.density(G), 4),
-            "positive_edges": pos_edges,
-            "negative_edges": neg_edges,
-            "lcc_size": lcc.number_of_nodes(),
-            "clustering": round(nx.average_clustering(G, weight="weight"), 4),
+            "negative_edges": sum(1 for *_, d in G.edges(data=True) if d["sign"] < 0),
+            "isolates": nx.number_of_isolates(G),
             "components": nx.number_connected_components(G),
+            "p_value": p,
+            "expected_false_edges": round(n_pairs * p, 1),
         })
     return pd.DataFrame(rows)
 
 
-def signed_network_summary(G: nx.Graph) -> dict:
-    """Summarize the signed statement network by positive and negative association."""
-    edges = list(G.edges(data=True))
-    positive = [d for _, _, d in edges if d.get("sign", 1) > 0]
-    negative = [d for _, _, d in edges if d.get("sign", 1) < 0]
+def negative_edges(G: nx.Graph) -> pd.DataFrame:
+    """All negative (opposition) edges, strongest first."""
+    rows = [{"u": u, "v": v, "r": d["correlation"]} for u, v, d in G.edges(data=True) if d["sign"] < 0]
+    return pd.DataFrame(rows, columns=["u", "v", "r"]).sort_values("r")
 
-    pos_df = pd.DataFrame([
-        {"u": u, "v": v, "correlation": d.get("correlation", 0.0), "abs_correlation": abs(float(d.get("correlation", 0.0)))}
-        for u, v, d in edges if d.get("sign", 1) > 0
-    ])
-    neg_df = pd.DataFrame([
-        {"u": u, "v": v, "correlation": d.get("correlation", 0.0), "abs_correlation": abs(float(d.get("correlation", 0.0)))}
-        for u, v, d in edges if d.get("sign", 1) < 0
-    ])
 
+def cross_domain_share(G: nx.Graph) -> float:
+    """Fraction of edges linking statements from different domains."""
+    edges = list(G.edges())
+    return sum(u[0] != v[0] for u, v in edges) / max(len(edges), 1)
+
+
+def statement_communities(G: nx.Graph) -> tuple[dict, float, float, float]:
+    """
+    Louvain on the positive-edge graph (modularity needs non-negative weights),
+    ignoring isolates. Returns partition, modularity, ARI vs domain labels and
+    modularity of the domain labels themselves.
+    """
+    H = positive_subgraph(G)
+    H.remove_nodes_from(list(nx.isolates(H)))
+    part, q = detect_communities(H)
+    ari = adjusted_rand_score([part[n] for n in H], [n[0] for n in H])
+    domain_sets = [{n for n in H if n[0] == d} for d in DOMAINS]
+    q_domain = nx.community.modularity(H, [s for s in domain_sets if s], weight="weight")
+    return part, q, round(ari, 3), round(q_domain, 4)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Domain structure and latent dimensions
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def domain_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-respondent mean answer per domain."""
+    return pd.DataFrame({d: df[domain_columns(df, d)].mean(axis=1) for d in DOMAINS})
+
+
+def cronbach_alpha(items: pd.DataFrame) -> float:
+    """Internal consistency of a set of items (complete cases)."""
+    X = items.dropna()
+    k = X.shape[1]
+    return float(k / (k - 1) * (1 - X.var().sum() / X.sum(axis=1).var()))
+
+
+def domain_reliability(df: pd.DataFrame) -> pd.Series:
+    return pd.Series({d: round(cronbach_alpha(df[domain_columns(df, d)]), 3) for d in DOMAINS})
+
+
+def principal_components(df: pd.DataFrame, n_components: int = 2) -> dict:
+    """
+    PCA on complete-ish data (column-mean imputation for the few No Comments).
+    Loadings are sign-aligned so that PC1 points towards overall agreement.
+    """
+    X = df.fillna(df.mean())
+    Xc = X - X.mean()
+    _, s, vt = np.linalg.svd(Xc.to_numpy(), full_matrices=False)
+    explained = s ** 2 / np.sum(s ** 2)
+    loadings = pd.DataFrame(vt[:n_components].T, index=df.columns,
+                            columns=[f"PC{i + 1}" for i in range(n_components)])
+    scores = pd.DataFrame(Xc.to_numpy() @ vt[:n_components].T, index=df.index, columns=loadings.columns)
+    if loadings["PC1"].sum() < 0:
+        loadings["PC1"] *= -1
+        scores["PC1"] *= -1
+    mean_answer = df.mean(axis=1)
     return {
-        "positive_edges": len(positive),
-        "negative_edges": len(negative),
-        "fraction_positive": round(len(positive) / max(len(edges), 1), 4),
-        "fraction_negative": round(len(negative) / max(len(edges), 1), 4),
-        "strongest_positive": pos_df.sort_values("abs_correlation", ascending=False).head(10),
-        "strongest_negative": neg_df.sort_values("abs_correlation", ascending=False).head(10),
+        "explained": explained[:n_components].round(3).tolist(),
+        "loadings": loadings,
+        "scores": scores,
+        "pc1_same_sign_share": round(float((loadings["PC1"] > 0).mean()), 2),
+        "pc1_vs_mean_answer_r": round(float(scores["PC1"].corr(mean_answer)), 3),
     }
 
 
-def domain_correlation_matrix(df_encoded: pd.DataFrame, domains=("T", "E", "S", "V")) -> pd.DataFrame:
-    """Compute the 4x4 correlation matrix of domain mean scores."""
-    scores = {}
-    for domain in domains:
-        cols = [c for c in df_encoded.columns if c.startswith(domain)]
-        scores[domain] = df_encoded[cols].mean(axis=1, skipna=True)
-    matrix = pd.DataFrame(index=list(domains), columns=list(domains), dtype=float)
-    for d1 in domains:
-        for d2 in domains:
-            matrix.loc[d1, d2] = scores[d1].corr(scores[d2])
-    return matrix
+def item_pair_correlations(corr: pd.DataFrame, pairs) -> pd.DataFrame:
+    """Correlations for hand-picked pairs of near-duplicate statements in different domains."""
+    return pd.DataFrame([{"u": a, "v": b, "r": corr.loc[a, b]} for a, b in pairs])
 
 
-def domain_level_statement_summary(df_encoded: pd.DataFrame, corr_matrix: pd.DataFrame) -> pd.DataFrame:
-    """Return a per-domain summary of association structure."""
-    rows = []
-    for domain in ["T", "E", "S", "V"]:
-        cols = [c for c in corr_matrix.columns if c.startswith(domain)]
-        sub = corr_matrix.loc[cols, cols].copy()
-        upper = sub.where(~np.triu(np.ones(sub.shape), k=1).astype(bool))
-        values = upper.stack().dropna().to_numpy()
-        rows.append({
-            "domain": domain,
-            "within_domain_mean_abs_r": round(float(np.mean(np.abs(values))), 4),
-            "within_domain_mean_r": round(float(np.mean(values)), 4),
-            "n_within_edges": int(len(values)),
-        })
-    return pd.DataFrame(rows)
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Evidence for design choices (chosen method vs the obvious alternative)
+# ═══════════════════════════════════════════════════════════════════════════════
 
+def design_choice_evidence(df_all: pd.DataFrame, df: pd.DataFrame, G: nx.Graph, sim: pd.DataFrame,
+                           partition: dict, summary: pd.DataFrame, seed: int = 0) -> dict:
+    """Quantify what each methodological choice changes on this dataset."""
+    ev = {}
 
-def within_vs_across_statement_edges(G: nx.Graph) -> pd.DataFrame:
-    """Compare within-domain and cross-domain edges in the statement network."""
-    domain_map = {n: n[0] for n in G.nodes()}
-    all_edges = []
-    for u, v, d in G.edges(data=True):
-        all_edges.append({
-            "u": u,
-            "v": v,
-            "abs_r": abs(float(d.get("correlation", 0.0))),
-            "signed_r": float(d.get("correlation", 0.0)),
-            "within": domain_map.get(u) == domain_map.get(v),
-        })
+    # Missing as Neutral would invent opinions.
+    ev["neutral_share_true"] = float((df_all == 0).sum().sum() / df_all.notna().sum().sum())
+    ev["neutral_share_if_blank_neutral"] = float((df_all.fillna(0) == 0).sum().sum() / df_all.size)
 
-    within = [e for e in all_edges if e["within"]]
-    cross = [e for e in all_edges if not e["within"]]
+    # k-NN vs a global threshold giving the same number of edges.
+    iu = np.triu_indices(len(sim), 1)
+    values = sim.to_numpy()[iu]
+    cut = np.sort(values[~np.isnan(values)])[::-1][G.number_of_edges() - 1]
+    Gt = nx.Graph()
+    Gt.add_nodes_from(sim.index)
+    Gt.add_edges_from((sim.index[i], sim.index[j]) for i, j in zip(*iu) if sim.iat[i, j] >= cut)
+    ev["threshold_isolates"] = nx.number_of_isolates(Gt)
+    ev["threshold_components"] = nx.number_connected_components(Gt)
+    ev["min_connected_k"] = next(k for k in range(1, 20) if nx.is_connected(knn_graph(sim, k)))
 
-    def summarize(edges):
-        if not edges:
-            return {"count": 0, "prop": 0.0, "mean_abs_r": np.nan, "mean_signed_r": np.nan}
-        df = pd.DataFrame(edges)
-        return {
-            "count": len(df),
-            "prop": round(len(df) / max(len(all_edges), 1), 4),
-            "mean_abs_r": round(float(df["abs_r"].mean()), 4),
-            "mean_signed_r": round(float(df["signed_r"].mean()), 4),
-        }
+    # 1/similarity vs 1 − similarity as path cost.
+    H = G.copy()
+    for _, _, d in H.edges(data=True):
+        d["alt"] = 1 - d["weight"]
+    b_inv = nx.betweenness_centrality(G, weight="distance")
+    b_alt = nx.betweenness_centrality(H, weight="alt")
+    ev["betweenness_rank_rho_inv_vs_one_minus"] = float(stats.spearmanr([b_inv[n] for n in G], [b_alt[n] for n in G])[0])
 
-    summary = {
-        "within_domain": summarize(within),
-        "cross_domain": summarize(cross),
-    }
-    return pd.DataFrame.from_dict(summary, orient="index")
+    # Louvain vs other community algorithms.
+    def as_partition(communities):
+        return {n: i for i, c in enumerate(communities) for n in c}
+    greedy = list(nx.community.greedy_modularity_communities(G, weight="weight"))
+    lpa = list(nx.community.asyn_lpa_communities(G, weight="weight", seed=seed))
+    ev["greedy_q"] = float(nx.community.modularity(G, greedy, weight="weight"))
+    ev["greedy_n"] = len(greedy)
+    ev["greedy_ari"] = float(_ari(partition, as_partition(greedy)))
+    ev["lpa_n"] = len(lpa)
 
+    # ARI vs NMI for unrelated partitions of the same sizes.
+    rng = np.random.default_rng(seed)
+    labels = np.array([partition[n] for n in G])
+    shuffled = [rng.permutation(labels) for _ in range(200)]
+    ev["random_nmi"] = float(np.mean([normalized_mutual_info_score(labels, p) for p in shuffled]))
+    ev["random_ari"] = float(np.mean([adjusted_rand_score(labels, p) for p in shuffled]))
 
-def top_statement_correlations(corr_matrix: pd.DataFrame, n: int = 10):
-    """Return top positive and negative statement correlations."""
-    records = []
-    for i, code_i in enumerate(corr_matrix.columns):
-        for j in range(i + 1, len(corr_matrix.columns)):
-            code_j = corr_matrix.columns[j]
-            r = corr_matrix.loc[code_i, code_j]
-            if pd.notna(r):
-                records.append({
-                    "code_i": code_i,
-                    "code_j": code_j,
-                    "corr": float(r),
-                    "domain_i": code_i[0],
-                    "domain_j": code_j[0],
-                })
-    pos = pd.DataFrame(records).sort_values("corr", ascending=False).head(n)
-    neg = pd.DataFrame(records).sort_values("corr", ascending=True).head(n)
-    return pos, neg
+    # Centrality measures vs overall agreement level.
+    mean_answer = df.mean(axis=1)
+    eig = nx.eigenvector_centrality(G, weight="weight", max_iter=2000)
+    ev["eigenvector_vs_agreement_r"] = float(pd.Series(eig).corr(mean_answer))
+    ev["betweenness_vs_agreement_r"] = float(pd.Series(b_inv).corr(mean_answer))
 
+    # Pearson vs Spearman for statements.
+    ju = np.triu_indices(df.shape[1], 1)
+    pear = df.corr(min_periods=10).to_numpy()[ju]
+    spear = df.corr(method="spearman", min_periods=10).to_numpy()[ju]
+    ev["pearson_spearman_r"] = float(np.corrcoef(pear, spear)[0, 1])
 
-def community_stability_analysis(df_encoded: pd.DataFrame, k: int = 8, runs: int = 12) -> dict:
-    """Assess Louvain stability across repeated runs."""
-    from src.build_networks import build_respondent_network
-    from src.analysis import detect_communities
-
-    partitions = []
-    modularities = []
-    for seed in range(runs):
-        G, _, _ = build_respondent_network(df_encoded, k=k, method="knn")
-        partition, modularity = detect_communities(G, seed=seed)
-        partitions.append(partition)
-        modularities.append(modularity)
-
-    pairwise = []
-    for i in range(len(partitions)):
-        for j in range(i + 1, len(partitions)):
-            pairwise.append(normalized_mutual_info_score(list(partitions[i].values()), list(partitions[j].values())))
-    stability = float(np.mean(pairwise)) if pairwise else 1.0
-    return {
-        "modularity_mean": round(float(np.mean(modularities)), 4),
-        "modularity_std": round(float(np.std(modularities)), 4),
-        "community_count_mean": round(float(np.mean([len(set(p.values())) for p in partitions])), 4),
-        "community_count_std": round(float(np.std([len(set(p.values())) for p in partitions])), 4),
-        "stability_nmi": round(stability, 4),
-    }
-
-
-def eta_squared_explained_variance(df_encoded: pd.DataFrame, partition: dict) -> pd.DataFrame:
-    """Compute between-community explained variance by domain."""
-    df = df_encoded.copy()
-    df["community"] = df.index.map(partition)
-    cat_cols = {cat: [] for cat in ["T", "E", "S", "V"]}
-    for col in df.columns:
-        if col == "community":
-            continue
-        cat_cols.setdefault(get_category(col), []).append(col)
-
-    records = []
-    for cat in ["T", "E", "S", "V"]:
-        values = df[cat_cols[cat]].to_numpy().flatten()
-        valid = values[~np.isnan(values)]
-        total_var = float(np.var(valid)) if len(valid) > 1 else 0.0
-        if total_var <= 0:
-            eta2 = 0.0
-            within_var = 0.0
-            between_var = 0.0
-        else:
-            community_means = []
-            within_values = []
-            for comm_id in sorted(df["community"].dropna().unique()):
-                subset = df[df["community"] == comm_id][cat_cols[cat]].to_numpy().flatten()
-                valid_subset = subset[~np.isnan(subset)]
-                if len(valid_subset) > 1:
-                    community_means.append(np.mean(valid_subset))
-                    within_values.append(np.var(valid_subset))
-            if community_means:
-                between_var = float(np.var(community_means, ddof=0))
-                within_var = float(np.mean(within_values)) if within_values else 0.0
-                eta2 = between_var / total_var
-            else:
-                between_var = 0.0
-                within_var = total_var
-                eta2 = 0.0
-        records.append({
-            "category": cat,
-            "category_label": CATEGORY_LABELS[cat],
-            "total_variance": round(total_var, 4),
-            "within_community_variance": round(within_var, 4),
-            "between_community_variance": round(between_var, 4),
-            "eta_squared": round(float(eta2), 4),
-        })
-    return pd.DataFrame(records)
-
-
-def polarization_vs_network_position(statement_graph: nx.Graph, pol: pd.DataFrame):
-    """Compare statement variance with network centrality measures."""
-    degree = dict(statement_graph.degree(weight="weight"))
-    betweenness = nx.betweenness_centrality(statement_graph, weight="distance")
-    combined = pol[["variance", "mean", "category"]].copy()
-    combined["weighted_degree"] = [degree.get(code, 0.0) for code in combined.index]
-    combined["betweenness"] = [betweenness.get(code, 0.0) for code in combined.index]
-    return combined.sort_values("variance", ascending=False)
-
-
-def statement_network_robustness_details(df_encoded: pd.DataFrame):
-    """Return a compact table of statement network robustness measures."""
-    from src.build_networks import build_statement_network
-
-    results = []
-    for threshold in (0.20, 0.30, 0.40, 0.50):
-        G, _ = build_statement_network(df_encoded, corr_threshold=threshold)
-        pos = sum(1 for _, _, d in G.edges(data=True) if d.get("sign", 1) > 0)
-        neg = sum(1 for _, _, d in G.edges(data=True) if d.get("sign", 1) < 0)
-        lcc = G if nx.is_connected(G) else G.subgraph(max(nx.connected_components(G), key=len)).copy()
-        results.append({
-            "threshold": threshold,
-            "edges": G.number_of_edges(),
-            "density": round(nx.density(G), 4),
-            "positive_edges": pos,
-            "negative_edges": neg,
-            "lcc_size": lcc.number_of_nodes(),
-            "clustering": round(nx.average_clustering(G, weight="weight"), 4),
-            "components": nx.number_connected_components(G),
-        })
-    return pd.DataFrame(results)
+    # Variance vs split index.
+    ev["variance_rank"] = summary["variance"].rank(ascending=False).astype(int).to_dict()
+    return ev
