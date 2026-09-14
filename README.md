@@ -260,20 +260,3 @@ These questions are central to opinion-network analysis and are exactly aligned 
 
 ---
 
-## 10. Notes on correctness and reproducibility
-
-This project is designed to be reproducible and methodologically correct:
-
-- raw data are not overwritten
-- network construction is explicit and documented
-- similarity and distance are separated correctly
-- all figures and the report are regenerated from computed outputs
-- robustness checks are included to validate the network findings
-
-This is important because a common mistake in similarity networks is to treat cosine similarity itself as a shortest-path cost. The project avoids that error and instead uses a valid distance transform for path-based measures.
-
----
-
-## 11. License and academic use
-
-This project is intended for academic coursework and network-science exploration. It demonstrates how graph-theoretic methods can be applied to survey-based opinion data in a reproducible and interpretable workflow.
