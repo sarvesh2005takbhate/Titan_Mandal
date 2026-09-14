@@ -67,6 +67,9 @@ def load_and_encode(csv_path: str | Path) -> tuple[pd.DataFrame, dict, dict]:
             rename_map[col] = code
     raw = raw.rename(columns=rename_map)[list(rename_map.values())]
     raw = raw.apply(lambda s: s.str.strip())
+    unknown = set(raw.stack().dropna()) - set(LIKERT_MAP) - {NO_COMMENT_TOKEN}
+    if unknown:
+        raise ValueError(f"Unexpected response values: {sorted(unknown)}")
 
     df_encoded = raw.apply(lambda s: s.map(LIKERT_MAP)).astype(float)
 

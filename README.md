@@ -16,9 +16,9 @@ We analyse a 60-statement Likert survey covering four domains (Technology / AI *
 ## Key findings
 
 - **A consensus class.** 79% of answers are Agree/Strongly Agree. Environment and Ethics are near-unanimous.
-- **No distinct opinion camps.** Respondent communities are not significantly stronger than in shuffled data (null-model p ≈ 0.2) and are unstable across runs.
-- **One clearest axis of disagreement.** Regulation and traditional structure (T12, E02, E03) versus open, flexible learning (E04, E01, E09). All negative statement correlations involve Education.
-- **Themes cut across domains.** 57% of statement edges link different domains, forming four cross-domain clusters (e.g. digital rights & AI regulation).
+- **No distinct opinion camps.** Respondent communities are not significantly stronger than in shuffled data (null-model p ≈ 0.2), are unstable across runs, and opinion scores are unimodal: a continuum, not blocs.
+- **A leading axis of disagreement, not a single one.** Regulation and traditional structure (T12, E02, E03) versus open, flexible learning (E04, E01, E09). Parallel analysis finds several small dimensions above noise. All 4 negative statement correlations involve Education and have bootstrap 95% intervals excluding zero.
+- **Domains matter, but themes cross them.** Within-domain links are 1.8× more common than chance, yet 57% of links cross domains, and 3 of 6 reproducible statement clusters (bootstrap consensus cores) mix domains.
 - **Uncertain topics stay disconnected.** The most-Neutral statements (E13, T08, T09) correlate with nothing.
 
 ---
@@ -38,16 +38,19 @@ Section 2 of the report has a **design-choice table**. Each row compares a choic
 - A global threshold would isolate 15 respondents; k-NN connects everyone.
 - Label propagation finds a single community, which supports the finding that there are no camps.
 - ARI is chance-corrected, whereas NMI scores unrelated partitions above zero.
-- The same comparison is made for missing-data handling, path cost, the null model, Pearson vs Spearman, the edge threshold, centrality, the split index, η², α and PCA.
+- Two single Louvain runs on bootstrap resamples agree only at ARI ≈ 0.1, so statement clusters are reported as bootstrap consensus cores.
+- The same comparison is made for missing-data handling, path cost, the null model, Pearson vs Spearman, the edge threshold (vs FDR control), centrality, the split index, η² and PCA with parallel analysis.
 
 ## Analyses
 
-- **Network metrics:** density, clustering, components, hop and weighted path lengths.
-- **Communities:** Louvain communities, tested against a null model built from 50 datasets with each statement's answers shuffled across respondents. Stability is measured across seeds and 90% subsamples. η² shows which statements separate communities.
-- **Statement network:** negative (opposition) edges, cross-domain share, Louvain clusters on positive edges, unconnected statements, betweenness.
+Every structural claim is checked against a baseline.
+
+- **Network metrics:** density, clustering (vs shuffled-data and degree-preserving rewired baselines), components, hop and weighted path lengths.
+- **Respondent communities:** Louvain, tested against 50 shuffled datasets (each statement's answers permuted across respondents). Stability is measured across seeds and 90% subsamples. Bimodality of opinion scores and assortativity test whether the structure is camps or a continuum.
+- **Statement network:** negative edges with bootstrap confidence intervals and FDR/Bonferroni correction, within-domain edge enrichment, modularity vs rewired graphs, bootstrap consensus cores, unconnected statements, betweenness.
 - **Polarization:** a split index, min(% agree, % disagree), rather than variance alone, plus consensus and rejected statements.
-- **Domain structure:** domain-score correlations, Cronbach's α, and PCA (PC1 = general agreement, PC2 = contested axis).
-- **Robustness:** sensitivity to k and threshold, expected chance edges per threshold, and raw vs centred cosine.
+- **Domain structure:** domain-score correlations, Cronbach's α, and PCA with Horn's parallel analysis.
+- **Robustness:** sensitivity to k and threshold, expected chance edges per threshold, raw vs centred cosine, Pearson vs Spearman.
 
 ---
 
@@ -61,8 +64,8 @@ Titan_Mandal/
 │   ├── data_prep.py               # loading, encoding, missing-data audit, filtering, style flags
 │   ├── build_networks.py          # centred cosine, k-NN graph, signed statement network
 │   ├── analysis.py                # metrics, Louvain, η², centrality, split index
-│   ├── advanced_analysis.py       # null model, stability, sensitivity, clusters, α, PCA
-│   ├── visualize.py               # figures 1–9
+│   ├── advanced_analysis.py       # null models, bootstraps, FDR, consensus cores, α, PCA + parallel analysis
+│   ├── visualize.py               # figures 1–7
 │   └── generate_pdf.py            # report.md → report.pdf
 ├── tests/test_network_math.py
 ├── output/
@@ -80,8 +83,8 @@ python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-python notebooks/full_pipeline.py # ≈ 40 s; regenerates figures, report and results.json
-pytest -q                         # unit tests for the similarity, η², split-index and filtering maths
+python notebooks/full_pipeline.py # ≈ 2 min; regenerates figures, report and results.json
+pytest -q                         # unit tests for similarity, η², split index, FDR, bimodality and filtering
 ```
 
 Every number and table in the report is computed during the run; nothing is hardcoded. Team name, repository link and contributions are set at the top of `notebooks/full_pipeline.py`.

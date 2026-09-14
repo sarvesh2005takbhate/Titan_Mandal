@@ -1,8 +1,9 @@
+import networkx as nx
 import numpy as np
 import pandas as pd
 import pytest
 
-from src.advanced_analysis import cronbach_alpha
+from src.advanced_analysis import bimodality_coefficient, correlation_tests, cronbach_alpha, domain_edge_enrichment
 from src.analysis import eta_squared, statement_summary
 from src.build_networks import build_statement_network, distance_from_similarity, pairwise_cosine
 from src.data_prep import filter_respondents
@@ -72,6 +73,32 @@ def test_split_index_separates_split_from_lopsided():
     summ = statement_summary(df)
     assert summ.loc["split", "split"] == pytest.approx(0.5)
     assert summ.loc["lopsided", "split"] == pytest.approx(0.25)
+
+
+def test_benjamini_hochberg_flags_only_real_correlations():
+    rng = np.random.default_rng(0)
+    base = rng.normal(size=200)
+    df = pd.DataFrame({"A": base, "B": base + rng.normal(scale=0.3, size=200),
+                       "C": rng.normal(size=200), "D": rng.normal(size=200)})
+    tests = correlation_tests(df)
+    flagged = {tuple(sorted((r.u, r.v))) for r in tests.itertuples() if r.fdr}
+    assert flagged == {("A", "B")}
+
+
+def test_domain_edge_enrichment_counts_within_domain_links():
+    G = nx.Graph()
+    G.add_nodes_from([f"{d}{i:02d}" for d in "TESV" for i in range(15)])
+    G.add_edges_from([("T00", "T01"), ("T02", "E00")])
+    enrich = domain_edge_enrichment(G)
+    assert enrich["cross_share"] == pytest.approx(0.5)
+    assert enrich["expected_cross_share"] == pytest.approx(1 - 420 / 1770)
+
+
+def test_bimodality_coefficient_separates_one_and_two_modes():
+    rng = np.random.default_rng(0)
+    one = pd.Series(rng.normal(size=500))
+    two = pd.Series(np.concatenate([rng.normal(-3, 0.5, 250), rng.normal(3, 0.5, 250)]))
+    assert bimodality_coefficient(one) < 0.555 < bimodality_coefficient(two)
 
 
 def test_cronbach_alpha_perfectly_consistent_items():

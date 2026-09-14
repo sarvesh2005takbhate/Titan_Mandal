@@ -2,14 +2,13 @@
 visualize.py — Figures for the report.
 
   1. Data overview (response mix by domain, answers per respondent)
-  2. Similarity distribution: raw vs row-centred cosine
-  3. Respondent network coloured by community
-  4. Statement network coloured by domain, negative edges highlighted
-  5. Community profiles on the statements that distinguish them
-  6. Polarization / consensus / rejection (diverging Likert bars)
+  2. Respondent network coloured by community
+  3. Statement network coloured by domain, negative edges highlighted
+  4. Polarization / consensus / rejection (diverging Likert bars)
+  5. Domain structure: domain correlations and reliability
+  6. Second principal component (largest substantive dimension)
   7. Robustness: null model, k-sensitivity, threshold sensitivity
-  8. Domain structure: domain correlations and reliability
-  9. Second principal component (clearest contested axis)
+(numbered in order of appearance in the report)
 
 Figures are sized at print width (7.2 in) so fonts stay legible in the PDF;
 titles are left to the report captions.
@@ -40,7 +39,6 @@ COMMUNITY_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "h"]
 INK, INK_2, MUTED, GRID, AXIS = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7"
 LIKERT_COLORS = ["#c23b3a", "#f0a3a2", "#d3d1ca", "#86b6ef", "#2a78d6"]   # SD, D, N, A, SA
 LIKERT_NAMES = ["Strongly disagree", "Disagree", "Neutral", "Agree", "Strongly agree"]
-DIVERGING = LinearSegmentedColormap.from_list("div", ["#c23b3a", "#f0efec", "#2a78d6"])
 PERCENT = FuncFormatter(lambda x, _: f"{abs(x):.0%}")
 
 plt.rcParams.update({
@@ -113,19 +111,6 @@ def plot_data_overview(df_all: pd.DataFrame, dropped: pd.DataFrame):
     _save(fig, "fig1_data_overview")
 
 
-def plot_similarity_distribution(bias: dict):
-    fig, ax = plt.subplots(figsize=(WIDTH, 1.9), layout="constrained")
-    bins = np.linspace(-0.6, 1, 65)
-    for label, color in (("raw", SERIES[1]), ("centred", SERIES[0])):
-        vals = bias[label]["similarities"]
-        ax.hist(vals, bins=bins, color=color, histtype="step", lw=1.8, label=f"{label} cosine (mean {vals.mean():.2f})")
-        ax.axvline(vals.mean(), color=color, lw=1, ls=(0, (1, 2)))
-    ax.set_xlabel("Pairwise respondent similarity")
-    ax.set_ylabel("Pairs")
-    ax.legend(loc="upper left")
-    _save(fig, "fig2_similarity_distribution")
-
-
 def plot_respondent_network(G: nx.Graph, partition: dict, centrality: pd.DataFrame, n_labels: int = 3):
     fig, ax = plt.subplots(figsize=(WIDTH, 3.7), layout="constrained")
     pos = nx.spring_layout(G, seed=42, weight="weight", k=1.8 / np.sqrt(len(G)), iterations=200)
@@ -141,7 +126,7 @@ def plot_respondent_network(G: nx.Graph, partition: dict, centrality: pd.DataFra
         ax.annotate(f"#{n}", pos[n], xytext=offset, textcoords="offset points", fontsize=7.5, fontweight="bold")
     ax.legend(loc="upper left", bbox_to_anchor=(1.0, 1.0), markerscale=0.6, title="Community", title_fontsize=7.5)
     ax.axis("off")
-    _save(fig, "fig3_respondent_network")
+    _save(fig, "fig2_respondent_network")
 
 
 def plot_statement_network(G: nx.Graph):
@@ -171,26 +156,7 @@ def plot_statement_network(G: nx.Graph):
                 Line2D([0], [0], color=SERIES[7], lw=2, label="negative r")]
     ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1.0, 1.0))
     ax.axis("off")
-    _save(fig, "fig4_statement_network")
-
-
-def plot_community_profiles(deviation: pd.DataFrame, eta: pd.Series, code_to_text: dict, sizes: pd.Series):
-    data = deviation.T
-    fig, ax = plt.subplots(figsize=(WIDTH, 0.23 * len(data) + 0.8), layout="constrained")
-    lim = np.nanmax(np.abs(data.to_numpy()))
-    im = ax.imshow(data.to_numpy(), cmap=DIVERGING, vmin=-lim, vmax=lim, aspect="auto")
-    for (i, j), v in np.ndenumerate(data.to_numpy()):
-        ax.text(j, i, f"{v:+.1f}", ha="center", va="center", fontsize=7, color="white" if abs(v) > 0.6 * lim else INK)
-    ax.set_yticks(range(len(data)), [f"{_label(c, code_to_text, 42)} (η² {eta[c]:.2f})" for c in data.index])
-    ax.set_xticks(range(data.shape[1]), [f"C{c} (n={sizes[c]})" for c in data.columns])
-    ax.xaxis.tick_top()
-    ax.tick_params(length=0)
-    for s in ax.spines.values():
-        s.set_visible(False)
-    cb = fig.colorbar(im, ax=ax, shrink=0.9, pad=0.01, aspect=15)
-    cb.set_label("community − class mean", fontsize=7)
-    cb.outline.set_visible(False)
-    _save(fig, "fig5_community_profiles")
+    _save(fig, "fig3_statement_network")
 
 
 def plot_polarization(df: pd.DataFrame, groups: dict[str, list[str]], code_to_text: dict):
@@ -217,7 +183,7 @@ def plot_polarization(df: pd.DataFrame, groups: dict[str, list[str]], code_to_te
     ax.xaxis.set_major_formatter(PERCENT)
     ax.spines["left"].set_visible(False)
     _likert_legend(fig)
-    _save(fig, "fig6_polarization")
+    _save(fig, "fig4_polarization")
 
 
 def plot_robustness(null: dict, k_sens: pd.DataFrame, thr_sens: pd.DataFrame, chosen_threshold: float):
@@ -284,7 +250,7 @@ def plot_domain_structure(corr: pd.DataFrame, alpha: pd.Series):
     ax.set_ylim(3.5, -0.9)
     ax.tick_params(axis="y", length=0)
     ax.set_title("(b) Cronbach's α")
-    _save(fig, "fig8_domain_structure")
+    _save(fig, "fig5_domain_structure")
 
 
 def plot_pc2(loadings: pd.Series, code_to_text: dict, n: int = 6):
@@ -297,4 +263,4 @@ def plot_pc2(loadings: pd.Series, code_to_text: dict, n: int = 6):
     ax.invert_yaxis()
     ax.tick_params(axis="y", length=0)
     ax.set_xlabel("PC2 loading   (blue: open / flexible learning pole · red: regulation / structure pole)")
-    _save(fig, "fig9_pc2_loadings")
+    _save(fig, "fig6_pc2_loadings")

@@ -132,8 +132,7 @@ def _table(lines, st):
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
-    block = [Spacer(1, 3), t, Spacer(1, 8)]
-    return [KeepTogether(block)] if len(body) <= 12 else block
+    return [Spacer(1, 3), t, Spacer(1, 8)]
 
 
 def _image(path: Path, caption: str, st, max_height=270):

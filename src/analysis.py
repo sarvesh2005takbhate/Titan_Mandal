@@ -27,8 +27,6 @@ def descriptive_stats(G: nx.Graph) -> dict:
         "avg_degree": round(float(np.mean(degrees)), 2),
         "clustering": round(nx.average_clustering(G, weight="weight"), 3),
         "clustering_unweighted": round(nx.average_clustering(G), 3),
-        # A random (Erdős–Rényi) graph with the same density has expected clustering = density.
-        "clustering_vs_random": round(nx.average_clustering(G) / nx.density(G), 2),
         "components": len(components),
         "isolates": sorted(nx.isolates(G)),
         "lcc_nodes": lcc.number_of_nodes(),
@@ -76,13 +74,6 @@ def domain_eta_squared(df: pd.DataFrame, partition: dict) -> pd.Series:
     """Mean statement-level η² per domain."""
     eta = statement_eta_squared(df, partition)
     return pd.Series({d: eta[domain_columns(df, d)].mean() for d in DOMAINS})
-
-
-def community_deviation(df: pd.DataFrame, partition: dict, statements: list[str]) -> pd.DataFrame:
-    """Community mean minus class mean for selected statements (rows = communities)."""
-    groups = df.index.to_series().map(partition)
-    means = df[statements].groupby(groups).mean()
-    return means - df[statements].mean()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -105,7 +105,6 @@
     "avg_degree": 12.85,
     "clustering": 0.196,
     "clustering_unweighted": 0.309,
-    "clustering_vs_random": 2.07,
     "components": 1,
     "isolates": [],
     "lcc_nodes": 87,
@@ -121,7 +120,6 @@
     "avg_degree": 10.4,
     "clustering": 0.246,
     "clustering_unweighted": 0.406,
-    "clustering_vs_random": 2.3,
     "components": 7,
     "isolates": [
       "E02",
@@ -140,22 +138,38 @@
       {
         "u": "E03",
         "v": "E10",
-        "r": -0.4403903433474599
+        "r": -0.4403903433474599,
+        "ci_low": -0.5931415188942022,
+        "ci_high": -0.23670150543516555,
+        "fdr": true,
+        "bonferroni": true
       },
       {
         "u": "T03",
         "v": "E04",
-        "r": -0.32256917369175675
+        "r": -0.32256917369175675,
+        "ci_low": -0.4884117643426182,
+        "ci_high": -0.12976347754061165,
+        "fdr": true,
+        "bonferroni": false
       },
       {
         "u": "E01",
         "v": "E02",
-        "r": -0.3143728679489966
+        "r": -0.3143728679489966,
+        "ci_low": -0.49223996501610634,
+        "ci_high": -0.115579464119599,
+        "fdr": true,
+        "bonferroni": false
       },
       {
         "u": "T06",
         "v": "E03",
-        "r": -0.3021866881657299
+        "r": -0.3021866881657299,
+        "ci_low": -0.48036044186325255,
+        "ci_high": -0.07476307305328643,
+        "fdr": true,
+        "bonferroni": false
       }
     ],
     "signed_isolates": [
@@ -164,7 +178,111 @@
       "T09",
       "T15"
     ],
-    "cross_domain_share": 0.569620253164557
+    "domain_enrichment": {
+      "cross_share": 0.5696202531645569,
+      "expected_cross_share": 0.7627118644067796,
+      "within_enrichment": 1.81374321880651
+    },
+    "rewired_null": {
+      "clustering": 0.40580771610445865,
+      "null_clustering": 0.35820490353934953,
+      "q_unweighted": 0.1994,
+      "null_q_mean": 0.16499,
+      "null_q_std": 0.007749122530970847
+    },
+    "fdr_edges": 392,
+    "bonferroni_edges": 57
+  },
+  "statement_robust_cores": {
+    "cores": [
+      {
+        "members": [
+          "E10",
+          "E12",
+          "E14",
+          "E15",
+          "T01",
+          "T02",
+          "T04",
+          "T06"
+        ],
+        "coassign": 0.5434781791860025,
+        "theme": "AI-ready, industry-linked education",
+        "domains": [
+          "T",
+          "E"
+        ]
+      },
+      {
+        "members": [
+          "S05",
+          "T10",
+          "T12",
+          "T14",
+          "V02"
+        ],
+        "coassign": 0.5144574468085107,
+        "theme": "Regulation & digital rights",
+        "domains": [
+          "T",
+          "S",
+          "V"
+        ]
+      },
+      {
+        "members": [
+          "E01",
+          "E05",
+          "E09"
+        ],
+        "coassign": 0.6289697646481567,
+        "theme": "Active, interdisciplinary learning",
+        "domains": [
+          "E"
+        ]
+      },
+      {
+        "members": [
+          "S08",
+          "S10",
+          "S12"
+        ],
+        "coassign": 0.5471929990780589,
+        "theme": "Evidence & civic participation",
+        "domains": [
+          "S"
+        ]
+      },
+      {
+        "members": [
+          "S13",
+          "V03",
+          "V12"
+        ],
+        "coassign": 0.54,
+        "theme": "Sustainable habits & education",
+        "domains": [
+          "S",
+          "V"
+        ]
+      },
+      {
+        "members": [
+          "V04",
+          "V06",
+          "V15"
+        ],
+        "coassign": 0.59,
+        "theme": "Resource conservation",
+        "domains": [
+          "V"
+        ]
+      }
+    ],
+    "overall_coassign": 0.23069182306018865,
+    "single_run_ari": 0.09944467709930732,
+    "runs": 200,
+    "min_coassign": 0.6
   },
   "communities": {
     "modularity": 0.2986,
@@ -269,7 +387,10 @@
       "null_mean": 0.2837,
       "null_std": 0.0163,
       "z": 0.91,
-      "p": 0.216
+      "p": 0.216,
+      "null_clustering_mean": 0.24747222623900722,
+      "null_clustering_std": 0.011921598313680516,
+      "null_pc2_eta_mean": 0.2973109610308392
     },
     "stability": {
       "seed_ari_mean": 0.47,
@@ -301,7 +422,10 @@
       "4": 1.7911786658332534,
       "5": -0.06852324801431567
     },
-    "pc2_eta_squared": 0.3837623604912852
+    "pc2_eta_squared": 0.3837623604912852,
+    "pc2_bimodality": 0.36635867495332186,
+    "assortativity_pc2": 0.49885813663150913,
+    "assortativity_agreement": 0.11438333407954875
   },
   "agreement_bias": {
     "raw": {
@@ -412,73 +536,6 @@
       "expected_false_edges": 0.0
     }
   ],
-  "statement_clusters": {
-    "1: Environmental & social responsibility": [
-      "S01",
-      "S03",
-      "S07",
-      "S08",
-      "S09",
-      "S13",
-      "S14",
-      "S15",
-      "T05",
-      "T07",
-      "V01",
-      "V02",
-      "V03",
-      "V04",
-      "V10",
-      "V11",
-      "V12",
-      "V13"
-    ],
-    "2: AI-ready, industry-linked education": [
-      "E07",
-      "E08",
-      "E10",
-      "E11",
-      "E12",
-      "E14",
-      "E15",
-      "S11",
-      "T01",
-      "T02",
-      "T03",
-      "T04",
-      "T06",
-      "V09",
-      "V14"
-    ],
-    "3: Active learning & civic action": [
-      "E01",
-      "E04",
-      "E05",
-      "E06",
-      "E09",
-      "S02",
-      "S04",
-      "S06",
-      "S10",
-      "S12",
-      "V05",
-      "V06",
-      "V07",
-      "V08",
-      "V15"
-    ],
-    "4: Digital rights & AI regulation": [
-      "S05",
-      "T10",
-      "T11",
-      "T12",
-      "T13",
-      "T14"
-    ]
-  },
-  "statement_cluster_modularity": 0.2112,
-  "domain_label_modularity": 0.127,
-  "cluster_vs_domain_ari": 0.143,
   "respondent_centrality_top10": [
     {
       "respondent": 114,
@@ -1620,6 +1677,25 @@
       0.062,
       0.058
     ],
+    "parallel_analysis": {
+      "observed": [
+        0.172,
+        0.062,
+        0.058,
+        0.055,
+        0.048,
+        0.042
+      ],
+      "null_95": [
+        0.064,
+        0.057,
+        0.053,
+        0.049,
+        0.046,
+        0.043
+      ],
+      "n_above_noise": 5
+    },
     "pc1_vs_mean_answer_r": 0.979,
     "loadings": {
       "PC1": {

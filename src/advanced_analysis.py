@@ -8,7 +8,7 @@ import networkx as nx
 from scipy import stats
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
-from src.analysis import detect_communities
+from src.analysis import detect_communities, eta_squared
 from src.build_networks import build_respondent_network, build_statement_network, knn_graph, positive_subgraph
 from src.data_prep import DOMAINS, domain_columns
 
@@ -31,11 +31,16 @@ def modularity_null_model(df: pd.DataFrame, observed_q: float, k: int = 8, runs:
     graphs are modular by construction, so this is the relevant baseline.
     """
     rng = np.random.default_rng(seed)
-    qs = []
+    qs, clustering, pc2_eta = [], [], []
     for i in range(runs):
-        shuffled = df.apply(lambda col: pd.Series(rng.permutation(col.to_numpy()), index=col.index))
+        shuffled = shuffle_within_statements(df, rng)
         G, _ = build_respondent_network(shuffled, k=k)
-        qs.append(detect_communities(G, seed=i)[1])
+        part, q = detect_communities(G, seed=i)
+        qs.append(q)
+        clustering.append(nx.average_clustering(G))
+        # How much a partition of *structureless* data still "explains" its own PC2.
+        scores = principal_components(shuffled, 2)["scores"]["PC2"]
+        pc2_eta.append(eta_squared(scores, shuffled.index.to_series().map(part)))
     qs = np.array(qs)
     return {
         "observed_q": observed_q,
@@ -44,7 +49,23 @@ def modularity_null_model(df: pd.DataFrame, observed_q: float, k: int = 8, runs:
         "null_std": round(float(qs.std()), 4),
         "z": round(float((observed_q - qs.mean()) / qs.std()), 2),
         "p": round(float((np.sum(qs >= observed_q) + 1) / (runs + 1)), 3),
+        "null_clustering_mean": float(np.mean(clustering)),
+        "null_clustering_std": float(np.std(clustering)),
+        "null_pc2_eta_mean": float(np.mean(pc2_eta)),
     }
+
+
+def shuffle_within_statements(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+    """Permute each statement's answers across respondents independently."""
+    return df.apply(lambda col: pd.Series(rng.permutation(col.to_numpy()), index=col.index))
+
+
+def bimodality_coefficient(x: pd.Series) -> float:
+    """Sarle's bimodality coefficient; values above 0.555 suggest two modes (camps)."""
+    x = pd.Series(x).dropna()
+    n = len(x)
+    g, k = stats.skew(x), stats.kurtosis(x)
+    return float((g ** 2 + 1) / (k + 3 * (n - 1) ** 2 / ((n - 2) * (n - 3))))
 
 
 def community_stability(G: nx.Graph, df: pd.DataFrame, partition: dict, k: int = 8,
@@ -83,7 +104,6 @@ def agreement_bias_check(df: pd.DataFrame, k: int = 8) -> dict:
         out[label] = {
             "mean_similarity": round(float(np.nanmean(vals)), 3),
             "degree_vs_mean_answer_r": round(float(pd.Series(dict(G.degree())).corr(mean_answer)), 3),
-            "similarities": vals[~np.isnan(vals)],
         }
     out["partition_ari"] = round(_ari(parts["raw"], parts["centred"]), 3)
     return out
@@ -137,25 +157,133 @@ def negative_edges(G: nx.Graph) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["u", "v", "r"]).sort_values("r")
 
 
-def cross_domain_share(G: nx.Graph) -> float:
-    """Fraction of edges linking statements from different domains."""
-    edges = list(G.edges())
-    return sum(u[0] != v[0] for u, v in edges) / max(len(edges), 1)
+def correlation_tests(df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
+    """p-values for every statement pair with Benjamini–Hochberg (FDR) and Bonferroni flags."""
+    cols = df.columns
+    rows = []
+    for i, a in enumerate(cols):
+        for b in cols[i + 1:]:
+            pair = df[[a, b]].dropna()
+            r, p = stats.pearsonr(pair[a], pair[b])
+            rows.append({"u": a, "v": b, "r": r, "p": p})
+    out = pd.DataFrame(rows).sort_values("p").reset_index(drop=True)
+    m = len(out)
+    passed = out["p"] <= alpha * (np.arange(1, m + 1) / m)
+    out["fdr"] = np.arange(m) < (passed[::-1].idxmax() + 1 if passed.any() else 0)
+    out["bonferroni"] = out["p"] < alpha / m
+    return out
 
 
-def statement_communities(G: nx.Graph) -> tuple[dict, float, float, float]:
+def bootstrap_edge_ci(df: pd.DataFrame, edges: pd.DataFrame, runs: int = 1000, seed: int = 0) -> pd.DataFrame:
+    """95 % bootstrap confidence interval (resampling respondents) for each listed correlation."""
+    rng = np.random.default_rng(seed)
+    samples = {(u, v): [] for u, v in zip(edges["u"], edges["v"])}
+    for _ in range(runs):
+        boot = df.loc[rng.choice(df.index, len(df), replace=True)]
+        for u, v in samples:
+            samples[(u, v)].append(boot[u].corr(boot[v]))
+    out = edges.copy()
+    out["ci_low"] = [np.percentile(samples[(u, v)], 2.5) for u, v in zip(edges["u"], edges["v"])]
+    out["ci_high"] = [np.percentile(samples[(u, v)], 97.5) for u, v in zip(edges["u"], edges["v"])]
+    return out
+
+
+def domain_edge_enrichment(G: nx.Graph, domain_size: int = 15) -> dict:
+    """Observed vs expected within-domain edges if edges ignored domain membership."""
+    n = G.number_of_nodes()
+    possible_within = len(DOMAINS) * domain_size * (domain_size - 1) / 2
+    expected_share = possible_within / (n * (n - 1) / 2)
+    within = sum(u[0] == v[0] for u, v in G.edges())
+    edges = G.number_of_edges()
+    return {
+        "cross_share": 1 - within / edges,
+        "expected_cross_share": 1 - expected_share,
+        "within_enrichment": within / (edges * expected_share),
+    }
+
+
+def rewired_null(H: nx.Graph, runs: int = 30, seed: int = 0) -> dict:
+    """Degree-preserving rewiring: clustering and (unweighted) modularity expected from degrees alone."""
+    base = nx.Graph()
+    base.add_nodes_from(H.nodes())
+    base.add_edges_from(H.edges())
+    q_obs = detect_communities(base, seed=seed)[1]
+    clust, qs = [], []
+    for s in range(runs):
+        R = base.copy()
+        nx.double_edge_swap(R, nswap=5 * R.number_of_edges(), max_tries=10 ** 6, seed=seed + s)
+        clust.append(nx.average_clustering(R))
+        qs.append(detect_communities(R, seed=s)[1])
+    return {
+        "clustering": nx.average_clustering(base),
+        "null_clustering": float(np.mean(clust)),
+        "q_unweighted": q_obs,
+        "null_q_mean": float(np.mean(qs)),
+        "null_q_std": float(np.std(qs)),
+    }
+
+
+def statement_robust_cores(df: pd.DataFrame, threshold: float, runs: int = 200,
+                           min_coassign: float = 0.6, min_size: int = 3, seed: int = 0) -> dict:
     """
-    Louvain on the positive-edge graph (modularity needs non-negative weights),
-    ignoring isolates. Returns partition, modularity, ARI vs domain labels and
-    modularity of the domain labels themselves.
+    Bootstrap consensus for statement clusters.
+
+    Modularity has many near-optimal partitions, so a single Louvain run on one sample is
+    not trustworthy. The positive-edge statement network is rebuilt on `runs` bootstrap
+    resamples of respondents and clustered each time. A *robust core* is a connected group
+    (≥ `min_size`) of statements that land in the same cluster in ≥ `min_coassign` of the
+    resamples. Statements outside cores have no stable cluster.
     """
-    H = positive_subgraph(G)
-    H.remove_nodes_from(list(nx.isolates(H)))
-    part, q = detect_communities(H)
-    ari = adjusted_rand_score([part[n] for n in H], [n[0] for n in H])
-    domain_sets = [{n for n in H if n[0] == d} for d in DOMAINS]
-    q_domain = nx.community.modularity(H, [s for s in domain_sets if s], weight="weight")
-    return part, q, round(ari, 3), round(q_domain, 4)
+    rng = np.random.default_rng(seed)
+    cols = list(df.columns)
+    together = pd.DataFrame(0.0, index=cols, columns=cols)
+    present = pd.DataFrame(0.0, index=cols, columns=cols)
+    single_runs = []
+    for s in range(runs):
+        boot = df.loc[rng.choice(df.index, len(df), replace=True)].reset_index(drop=True)
+        G, _ = build_statement_network(boot, threshold)
+        H = positive_subgraph(G)
+        H.remove_nodes_from(list(nx.isolates(H)))
+        part, _ = detect_communities(H, seed=s)
+        nodes = list(part)
+        labels = np.array([part[n] for n in nodes])
+        together.loc[nodes, nodes] += labels[:, None] == labels[None, :]
+        present.loc[nodes, nodes] += 1
+        single_runs.append(part)
+    co = together / present.replace(0, np.nan)
+
+    C = nx.Graph()
+    C.add_edges_from((a, b) for i, a in enumerate(cols) for b in cols[i + 1:] if co.loc[a, b] >= min_coassign)
+    cores = []
+    for members in nx.connected_components(C):
+        if len(members) >= min_size:
+            members = sorted(members)
+            rates = co.loc[members, members].to_numpy()[np.triu_indices(len(members), 1)]
+            cores.append({"members": members, "coassign": float(np.nanmean(rates))})
+    cores.sort(key=lambda c: -len(c["members"]))
+    pair_ari = [_ari(single_runs[i], single_runs[i + 1]) for i in range(0, runs - 1, 2)]
+    return {
+        "cores": cores,
+        "overall_coassign": float(np.nanmean(co.to_numpy()[np.triu_indices(len(cols), 1)])),
+        "single_run_ari": float(np.mean(pair_ari)),
+        "runs": runs,
+        "min_coassign": min_coassign,
+    }
+
+
+def parallel_analysis(df: pd.DataFrame, n_components: int = 6, runs: int = 100, seed: int = 0) -> dict:
+    """Horn's parallel analysis: compare explained variance with shuffled-data PCA (95th percentile)."""
+    rng = np.random.default_rng(seed)
+    observed = np.array(principal_components(df, n_components)["explained"])
+    null = np.array([principal_components(shuffle_within_statements(df, rng), n_components)["explained"]
+                     for _ in range(runs)])
+    threshold = np.percentile(null, 95, axis=0)
+    above = observed > threshold
+    return {
+        "observed": observed.tolist(),
+        "null_95": threshold.tolist(),
+        "n_above_noise": int(np.argmin(above)) if not above.all() else n_components,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
