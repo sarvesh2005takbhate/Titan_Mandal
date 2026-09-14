@@ -13,6 +13,21 @@ from scipy.stats import pearsonr
 from src.data_prep import get_category
 
 
+def distance_from_similarity(similarity: float) -> float:
+    """Convert a positive similarity to a shortest-path distance.
+
+    Cosine similarity is a similarity score, not a path cost. For graph-theoretic
+    shortest paths we use a monotone transformation with smaller values meaning
+    stronger similarity. We keep the original similarity value as an edge attribute
+    for interpretation and store the transformed distance separately.
+    """
+    if pd.isna(similarity):
+        return np.inf
+    if similarity <= 0:
+        return np.inf
+    return 1.0 / float(similarity)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Network 1 — Respondent Similarity
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -117,25 +132,27 @@ def build_respondent_network(
     G.add_nodes_from(ids)
 
     if method == "knn":
-        # For each node, connect to the k most similar neighbors
+        # For each node, connect to the k most similar neighbors.
+        # The graph stores both the original similarity and a distance cost derived
+        # from the similarity for shortest-path calculations.
         for i, node_i in enumerate(ids):
             row = sim_cos.loc[node_i].drop(node_i).dropna()
             neighbors = row.nlargest(k)
             for node_j, w in neighbors.items():
-                if w > 0:   # only positive similarity
+                if w > 0:
                     if G.has_edge(node_i, node_j):
-                        # keep max weight
-                        G[node_i][node_j]["weight"] = max(G[node_i][node_j]["weight"], w)
+                        G[node_i][node_j]["similarity"] = max(G[node_i][node_j].get("similarity", 0.0), w)
                     else:
-                        G.add_edge(node_i, node_j, weight=w)
+                        G.add_edge(node_i, node_j, similarity=w, distance=distance_from_similarity(w))
+                    G[node_i][node_j]["weight"] = G[node_i][node_j].get("similarity", w)
     elif method == "threshold":
         assert threshold is not None
         for i, ni in enumerate(ids):
             for j in range(i + 1, len(ids)):
                 nj = ids[j]
                 w = sim_cos.iloc[i, j]
-                if not np.isnan(w) and w >= threshold:
-                    G.add_edge(ni, nj, weight=w)
+                if not np.isnan(w) and w >= threshold and w > 0:
+                    G.add_edge(ni, nj, similarity=w, distance=distance_from_similarity(w), weight=w)
     else:
         raise ValueError(f"Unknown method: {method}")
 
@@ -177,8 +194,16 @@ def build_statement_network(
             cj = codes[j]
             r = corr_matrix.loc[ci, cj]
             if pd.notna(r) and abs(r) >= corr_threshold:
-                G.add_edge(ci, cj, weight=abs(r), correlation=r,
-                           sign=1 if r > 0 else -1)
+                strength = abs(r)
+                G.add_edge(
+                    ci,
+                    cj,
+                    weight=strength,
+                    similarity=strength,
+                    correlation=r,
+                    sign=1 if r > 0 else -1,
+                    distance=(1.0 / strength) if strength > 0 else np.inf,
+                )
 
     print(f"  Network 2 built: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
     return G, corr_matrix

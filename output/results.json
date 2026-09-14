@@ -13,8 +13,8 @@
     "clustering_coeff": 0.3351,
     "lcc_nodes": 91,
     "lcc_edges": 639,
-    "avg_path_length": 1.9683,
-    "diameter": 3
+    "avg_path_length": 2.7297,
+    "diameter": 18.369517947544992
   },
   "stats_n2": {
     "name": "Statement Co-Endorsement (Network 2)",
@@ -25,8 +25,8 @@
     "clustering_coeff": 0.252,
     "lcc_nodes": 56,
     "lcc_edges": 316,
-    "avg_path_length": 2.1487,
-    "diameter": 5
+    "avg_path_length": 5.5439,
+    "diameter": 13.517960415060694
   },
   "modularity": 0.2586,
   "n_communities": 12,
@@ -116,199 +116,663 @@
       "11": 1
     }
   },
-  "top5_central_n1": [
-    114,
-    67,
-    110,
-    105,
-    81
-  ],
-  "top5_central_n1_values": {
-    "114": 0.2582,
-    "67": 0.254,
-    "110": 0.2438,
-    "105": 0.2377,
-    "81": 0.2359
-  },
-  "bottom5_n1": [
-    44,
-    73,
-    68,
-    78,
-    60
-  ],
-  "top10_bridge_n2": {
-    "betweenness": {
-      "S07": 0.09175920514319111,
-      "E12": 0.07948568088836937,
-      "V07": 0.07422559906487433,
-      "S06": 0.07364114552893045,
-      "S09": 0.054938632378725885,
-      "E10": 0.040327293980128576,
-      "S02": 0.0385739333722969,
-      "S15": 0.03798947983635301,
-      "E01": 0.037405026300409115,
-      "T12": 0.03623611922852133
-    },
-    "category": {
-      "S07": "S",
-      "E12": "E",
-      "V07": "V",
-      "S06": "S",
-      "S09": "S",
-      "E10": "E",
-      "S02": "S",
-      "S15": "S",
-      "E01": "E",
-      "T12": "T"
-    }
-  },
   "top5_polarizing": {
     "E04": {
       "var": 1.365,
-      "mean": 0.437,
-      "text": "High-quality online learning can effectively complement classroom teaching."
+      "mean": 0.437
     },
     "E03": {
       "var": 1.264,
-      "mean": -0.943,
-      "text": "Class attendance should be compulsory for all courses."
+      "mean": -0.943
     },
     "E02": {
       "var": 1.253,
-      "mean": -0.161,
-      "text": "Traditional written examinations accurately measure a student's knowledge."
+      "mean": -0.161
     },
     "T08": {
       "var": 1.196,
-      "mean": 0.078,
-      "text": "AI-assisted diagnosis should become routine in healthcare."
+      "mean": 0.078
     },
     "S02": {
       "var": 1.113,
-      "mean": 0.839,
-      "text": "Universities should encourage students to participate in community service activities."
+      "mean": 0.839
     }
   },
   "top5_consensus": {
     "E15": {
       "var": 0.254,
-      "mean": 1.713,
-      "text": "Continuous learning and skill development are essential throughout one's career."
+      "mean": 1.713
     },
     "V13": {
       "var": 0.319,
-      "mean": 1.671,
-      "text": "Companies should be held accountable for the environmental impacts of their activities."
+      "mean": 1.671
     },
     "S09": {
       "var": 0.347,
-      "mean": 1.471,
-      "text": "Universities should promote an inclusive environment where different viewpoints can be discussed respectfully."
+      "mean": 1.471
     },
     "V06": {
       "var": 0.349,
-      "mean": 1.512,
-      "text": "Water conservation should be a priority in households, institutions, and industries."
+      "mean": 1.512
     },
     "S05": {
       "var": 0.352,
-      "mean": 1.632,
-      "text": "Individuals should have greater control over how their personal data are collected and used."
+      "mean": 1.632
     }
   },
-  "homophily": [
+  "cos_pear_corr": 0.6495,
+  "k_sensitivity": [
+    {
+      "k": 5,
+      "edges": 404,
+      "density": 0.0886,
+      "avg_degree": 8.42,
+      "clustering": 0.2647,
+      "components": 6,
+      "lcc_nodes": 91,
+      "modularity": 0.3171,
+      "n_communities": 12
+    },
+    {
+      "k": 6,
+      "edges": 483,
+      "density": 0.1059,
+      "avg_degree": 10.06,
+      "clustering": 0.2832,
+      "components": 6,
+      "lcc_nodes": 91,
+      "modularity": 0.2815,
+      "n_communities": 12
+    },
+    {
+      "k": 8,
+      "edges": 639,
+      "density": 0.1401,
+      "avg_degree": 13.31,
+      "clustering": 0.3351,
+      "components": 6,
+      "lcc_nodes": 91,
+      "modularity": 0.2586,
+      "n_communities": 12
+    },
+    {
+      "k": 10,
+      "edges": 787,
+      "density": 0.1726,
+      "avg_degree": 16.4,
+      "clustering": 0.3678,
+      "components": 6,
+      "lcc_nodes": 91,
+      "modularity": 0.2222,
+      "n_communities": 10
+    },
+    {
+      "k": 12,
+      "edges": 928,
+      "density": 0.2035,
+      "avg_degree": 19.33,
+      "clustering": 0.3842,
+      "components": 6,
+      "lcc_nodes": 91,
+      "modularity": 0.2044,
+      "n_communities": 10
+    }
+  ],
+  "threshold_sensitivity": [
+    {
+      "threshold": 0.2,
+      "edges": 713,
+      "density": 0.4028,
+      "positive_edges": 689,
+      "negative_edges": 24,
+      "lcc_size": 60,
+      "clustering": 0.2815,
+      "components": 1
+    },
+    {
+      "threshold": 0.3,
+      "edges": 316,
+      "density": 0.1785,
+      "positive_edges": 312,
+      "negative_edges": 4,
+      "lcc_size": 56,
+      "clustering": 0.252,
+      "components": 5
+    },
+    {
+      "threshold": 0.4,
+      "edges": 116,
+      "density": 0.0655,
+      "positive_edges": 115,
+      "negative_edges": 1,
+      "lcc_size": 46,
+      "clustering": 0.1282,
+      "components": 14
+    },
+    {
+      "threshold": 0.5,
+      "edges": 18,
+      "density": 0.0102,
+      "positive_edges": 18,
+      "negative_edges": 0,
+      "lcc_size": 10,
+      "clustering": 0.0374,
+      "components": 44
+    }
+  ],
+  "signed_summary": {
+    "positive_edges": 312,
+    "negative_edges": 4,
+    "fraction_positive": 0.9873,
+    "fraction_negative": 0.0127,
+    "strongest_positive": "       u    v  correlation  abs_correlation\n282  V07  V08     0.629563         0.629563\n114  E14  E15     0.604181         0.604181\n270  V05  V07     0.601139         0.601139\n290  V08  V10     0.599421         0.599421\n302  V10  V12     0.579059         0.579059\n234  S14  V13     0.555028         0.555028\n134  S01  S03     0.545677         0.545677\n299  V09  V14     0.539850         0.539850\n1    T02  E12     0.531279         0.531279\n101  E11  V07     0.531219         0.531219",
+    "strongest_negative": "     u    v  correlation  abs_correlation\n3  E03  E10    -0.440390         0.440390\n0  T03  E04    -0.322569         0.322569\n2  E01  E02    -0.314373         0.314373\n1  T06  E03    -0.302187         0.302187"
+  },
+  "domain_matrix": {
+    "T": {
+      "T": 1.0,
+      "E": 0.2886,
+      "S": 0.5421,
+      "V": 0.4551
+    },
+    "E": {
+      "T": 0.2886,
+      "E": 1.0,
+      "S": 0.526,
+      "V": 0.4876
+    },
+    "S": {
+      "T": 0.5421,
+      "E": 0.526,
+      "S": 1.0,
+      "V": 0.7045
+    },
+    "V": {
+      "T": 0.4551,
+      "E": 0.4876,
+      "S": 0.7045,
+      "V": 1.0
+    }
+  },
+  "statement_edge_summary": {
+    "count": {
+      "within_domain": 136,
+      "cross_domain": 180
+    },
+    "prop": {
+      "within_domain": 0.4304,
+      "cross_domain": 0.5696
+    },
+    "mean_abs_r": {
+      "within_domain": 0.3923,
+      "cross_domain": 0.3743
+    },
+    "mean_signed_r": {
+      "within_domain": 0.3812,
+      "cross_domain": 0.3674
+    }
+  },
+  "community_stability": {
+    "modularity_mean": 0.2669,
+    "modularity_std": 0.0052,
+    "community_count_mean": 10.3333,
+    "community_count_std": 0.7454,
+    "stability_nmi": 0.733
+  },
+  "eta_squared": [
     {
       "category": "T",
       "category_label": "Technology / AI",
-      "overall_variance": 0.9732,
-      "avg_within_community_variance": 0.9446,
-      "variance_reduction_pct": 2.9
+      "total_variance": 0.9732,
+      "within_community_variance": 0.9446,
+      "between_community_variance": 0.0137,
+      "eta_squared": 0.0141
     },
     {
       "category": "E",
       "category_label": "Education",
-      "overall_variance": 1.3163,
-      "avg_within_community_variance": 1.2592,
-      "variance_reduction_pct": 4.3
+      "total_variance": 1.3163,
+      "within_community_variance": 1.2592,
+      "between_community_variance": 0.031,
+      "eta_squared": 0.0235
     },
     {
       "category": "S",
       "category_label": "Ethics / Society",
-      "overall_variance": 0.7011,
-      "avg_within_community_variance": 0.6816,
-      "variance_reduction_pct": 2.8
+      "total_variance": 0.7011,
+      "within_community_variance": 0.6816,
+      "between_community_variance": 0.0134,
+      "eta_squared": 0.0191
     },
     {
       "category": "V",
       "category_label": "Environment",
-      "overall_variance": 0.5693,
-      "avg_within_community_variance": 0.5331,
-      "variance_reduction_pct": 6.4
+      "total_variance": 0.5693,
+      "within_community_variance": 0.5331,
+      "between_community_variance": 0.0225,
+      "eta_squared": 0.0395
     }
   ],
-  "cos_pear_corr": 0.6495,
-  "effective_threshold": 0.0266,
-  "per_stmt_missing": {
-    "V06": 12,
-    "V11": 12,
-    "S10": 12,
-    "S14": 12,
-    "V12": 12,
-    "V08": 11,
-    "V15": 11,
-    "S09": 11,
-    "E08": 11,
-    "E13": 11,
-    "E05": 11,
-    "V02": 11,
-    "V10": 11,
-    "V13": 11,
-    "V14": 11,
-    "V01": 11,
-    "V07": 11,
-    "V09": 11,
-    "S01": 10,
-    "E09": 10,
-    "E06": 10,
-    "V03": 10,
-    "V05": 10,
-    "S15": 10,
-    "S08": 10,
-    "S07": 10,
-    "S12": 10,
-    "V04": 10,
-    "E07": 9,
-    "E10": 9,
-    "E11": 9,
-    "E04": 9,
-    "E02": 9,
-    "E01": 9,
-    "E03": 9,
-    "S13": 9,
-    "E14": 9,
-    "S11": 9,
-    "E15": 9,
-    "S02": 9,
-    "S03": 9,
-    "S04": 9,
-    "S05": 9,
-    "E12": 9,
-    "S06": 9,
-    "T03": 7,
-    "T13": 7,
-    "T11": 7,
-    "T12": 6,
-    "T14": 6,
-    "T08": 6,
-    "T09": 6,
-    "T15": 6,
-    "T07": 5,
-    "T01": 5,
-    "T04": 5,
-    "T05": 5,
-    "T06": 5,
-    "T10": 5,
-    "T02": 5
-  }
+  "polarization_vs_centrality": [
+    {
+      "variance": 1.3651430098904038,
+      "mean": 0.4367816091954023,
+      "category": "E",
+      "weighted_degree": 0.6307813686332954,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 1.2641005078855923,
+      "mean": -0.9425287356321839,
+      "category": "E",
+      "weighted_degree": 0.7425770315131899,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 1.2528735632183907,
+      "mean": -0.16091954022988506,
+      "category": "E",
+      "weighted_degree": 0.3143728679489966,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 1.1961298377028715,
+      "mean": 0.07777777777777778,
+      "category": "T",
+      "weighted_degree": 0.0,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 1.1133386794974605,
+      "mean": 0.8390804597701149,
+      "category": "S",
+      "weighted_degree": 3.924867367744576,
+      "betweenness": 0.022209234365867914
+    },
+    {
+      "variance": 1.0850889192886457,
+      "mean": 0.7906976744186046,
+      "category": "E",
+      "weighted_degree": 0.7709557045417731,
+      "betweenness": 0.0011689070718877848
+    },
+    {
+      "variance": 1.078144078144078,
+      "mean": 1.2087912087912087,
+      "category": "T",
+      "weighted_degree": 0.4518972860228748,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 1.0649558941459503,
+      "mean": 0.9310344827586207,
+      "category": "E",
+      "weighted_degree": 5.5567165647794114,
+      "betweenness": 0.06370543541788427
+    },
+    {
+      "variance": 1.0168262653898767,
+      "mean": 0.9186046511627907,
+      "category": "S",
+      "weighted_degree": 0.3065460183252479,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 1.010736579275905,
+      "mean": 1.0222222222222221,
+      "category": "T",
+      "weighted_degree": 4.695096944307795,
+      "betweenness": 0.043249561659848036
+    },
+    {
+      "variance": 0.9890403635391606,
+      "mean": 1.1494252873563218,
+      "category": "S",
+      "weighted_degree": 4.308121973251343,
+      "betweenness": 0.0023378141437755697
+    },
+    {
+      "variance": 0.9777777777777777,
+      "mean": 1.0,
+      "category": "T",
+      "weighted_degree": 0.8626498703954926,
+      "betweenness": 0.031560490940970194
+    },
+    {
+      "variance": 0.967032967032967,
+      "mean": 0.6373626373626373,
+      "category": "T",
+      "weighted_degree": 0.331371205106782,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 0.9219725343320849,
+      "mean": 0.2777777777777778,
+      "category": "T",
+      "weighted_degree": 0.0,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 0.9128590971272229,
+      "mean": 0.872093023255814,
+      "category": "E",
+      "weighted_degree": 0.6879986686541772,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 0.8941176470588234,
+      "mean": 0.3411764705882353,
+      "category": "E",
+      "weighted_degree": 0.0,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 0.857592339261286,
+      "mean": 0.9651162790697675,
+      "category": "V",
+      "weighted_degree": 4.236599556336188,
+      "betweenness": 0.012857977790765633
+    },
+    {
+      "variance": 0.853126792885829,
+      "mean": 1.119047619047619,
+      "category": "V",
+      "weighted_degree": 7.561817164496416,
+      "betweenness": 0.015195791934541203
+    },
+    {
+      "variance": 0.8254477412456565,
+      "mean": 1.3218390804597702,
+      "category": "E",
+      "weighted_degree": 2.0541734806941876,
+      "betweenness": 0.04149620105201636
+    },
+    {
+      "variance": 0.8243697478991597,
+      "mean": 1.0941176470588236,
+      "category": "E",
+      "weighted_degree": 1.7562508496571334,
+      "betweenness": 0.014611338398597311
+    },
+    {
+      "variance": 0.8202686202686202,
+      "mean": 1.1868131868131868,
+      "category": "T",
+      "weighted_degree": 0.6970382932090833,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 0.8176710929519918,
+      "mean": 0.9775280898876404,
+      "category": "T",
+      "weighted_degree": 1.7544043775962523,
+      "betweenness": 0.0029222676797194622
+    },
+    {
+      "variance": 0.8153214774281806,
+      "mean": 1.2790697674418605,
+      "category": "S",
+      "weighted_degree": 1.7048527352070013,
+      "betweenness": 0.0052600818234950315
+    },
+    {
+      "variance": 0.7892551892551893,
+      "mean": 1.2087912087912087,
+      "category": "T",
+      "weighted_degree": 3.1741309456457314,
+      "betweenness": 0.004091174751607247
+    },
+    {
+      "variance": 0.776068376068376,
+      "mean": 1.1538461538461537,
+      "category": "T",
+      "weighted_degree": 1.235068230534448,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 0.7704290091930541,
+      "mean": 1.1573033707865168,
+      "category": "T",
+      "weighted_degree": 2.76151977782032,
+      "betweenness": 0.0058445353594389245
+    },
+    {
+      "variance": 0.7548783747661053,
+      "mean": 1.264367816091954,
+      "category": "S",
+      "weighted_degree": 1.9442802333557672,
+      "betweenness": 0.0017533606078316772
+    },
+    {
+      "variance": 0.7514363885088919,
+      "mean": 1.244186046511628,
+      "category": "S",
+      "weighted_degree": 6.396340541572972,
+      "betweenness": 0.009351256575102279
+    },
+    {
+      "variance": 0.7487394957983193,
+      "mean": 1.035294117647059,
+      "category": "V",
+      "weighted_degree": 8.702901227678199,
+      "betweenness": 0.037405026300409115
+    },
+    {
+      "variance": 0.7157814096016343,
+      "mean": 1.0112359550561798,
+      "category": "T",
+      "weighted_degree": 2.096796111647546,
+      "betweenness": 0.0052600818234950315
+    },
+    {
+      "variance": 0.7003663003663003,
+      "mean": 1.2087912087912087,
+      "category": "T",
+      "weighted_degree": 2.0632933002846743,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 0.6594493450948944,
+      "mean": 1.3908045977011494,
+      "category": "S",
+      "weighted_degree": 8.381991629588454,
+      "betweenness": 0.06312098188194039
+    },
+    {
+      "variance": 0.646498599439776,
+      "mean": 1.2588235294117647,
+      "category": "E",
+      "weighted_degree": 1.6193592807426436,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 0.6363885088919288,
+      "mean": 1.372093023255814,
+      "category": "V",
+      "weighted_degree": 5.340138505422814,
+      "betweenness": 0.0029222676797194622
+    },
+    {
+      "variance": 0.6244870041039671,
+      "mean": 1.430232558139535,
+      "category": "S",
+      "weighted_degree": 8.94645973138528,
+      "betweenness": 0.06721215663354763
+    },
+    {
+      "variance": 0.616142270861833,
+      "mean": 1.255813953488372,
+      "category": "S",
+      "weighted_degree": 3.783165162521315,
+      "betweenness": 0.0035067212156633543
+    },
+    {
+      "variance": 0.6123595505617978,
+      "mean": 1.1666666666666667,
+      "category": "T",
+      "weighted_degree": 0.0,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 0.5898876404494382,
+      "mean": 1.5,
+      "category": "T",
+      "weighted_degree": 1.871670297557917,
+      "betweenness": 0.0
+    },
+    {
+      "variance": 0.5608126169473403,
+      "mean": 1.2988505747126438,
+      "category": "E",
+      "weighted_degree": 5.511669269209921,
+      "betweenness": 0.007597895967270602
+    },
+    {
+      "variance": 0.5489099254159494,
+      "mean": 1.2976190476190477,
+      "category": "S",
+      "weighted_degree": 8.56484657122153,
+      "betweenness": 0.05084745762711864
+    },
+    {
+      "variance": 0.5434173669467788,
+      "mean": 1.2941176470588236,
+      "category": "V",
+      "weighted_degree": 8.249794299754688,
+      "betweenness": 0.018118059614260665
+    },
+    {
+      "variance": 0.5344537815126051,
+      "mean": 1.4352941176470588,
+      "category": "V",
+      "weighted_degree": 8.73554305802517,
+      "betweenness": 0.042665108123904144
+    },
+    {
+      "variance": 0.5271084337349398,
+      "mean": 1.25,
+      "category": "S",
+      "weighted_degree": 3.7755021629961463,
+      "betweenness": 0.02630040911747516
+    },
+    {
+      "variance": 0.5223202352312216,
+      "mean": 1.264367816091954,
+      "category": "S",
+      "weighted_degree": 6.30442308245635,
+      "betweenness": 0.024547048509643482
+    },
+    {
+      "variance": 0.5216142270861833,
+      "mean": 1.3837209302325582,
+      "category": "V",
+      "weighted_degree": 5.07719807868577,
+      "betweenness": 0.004091174751607247
+    },
+    {
+      "variance": 0.5047619047619049,
+      "mean": 1.6,
+      "category": "V",
+      "weighted_degree": 9.92452813250796,
+      "betweenness": 0.04734073641145529
+    },
+    {
+      "variance": 0.48580034423407914,
+      "mean": 1.3214285714285714,
+      "category": "V",
+      "weighted_degree": 3.8644308884410967,
+      "betweenness": 0.011104617182933957
+    },
+    {
+      "variance": 0.4846297781341887,
+      "mean": 1.528735632183908,
+      "category": "E",
+      "weighted_degree": 8.94983814850921,
+      "betweenness": 0.10578609000584453
+    },
+    {
+      "variance": 0.4846297781341887,
+      "mean": 1.528735632183908,
+      "category": "E",
+      "weighted_degree": 6.595920126238294,
+      "betweenness": 0.01636469900642899
+    },
+    {
+      "variance": 0.46722689075630236,
+      "mean": 1.4941176470588236,
+      "category": "V",
+      "weighted_degree": 9.846972591741928,
+      "betweenness": 0.05552308591466978
+    },
+    {
+      "variance": 0.41680672268907565,
+      "mean": 1.5529411764705883,
+      "category": "V",
+      "weighted_degree": 8.393958366916948,
+      "betweenness": 0.014611338398597311
+    },
+    {
+      "variance": 0.400962309542903,
+      "mean": 1.6206896551724137,
+      "category": "E",
+      "weighted_degree": 4.53044700525414,
+      "betweenness": 0.008182349503214495
+    },
+    {
+      "variance": 0.395798319327731,
+      "mean": 1.5058823529411764,
+      "category": "V",
+      "weighted_degree": 6.572324789007636,
+      "betweenness": 0.009935710111046171
+    },
+    {
+      "variance": 0.3955182072829132,
+      "mean": 1.5176470588235293,
+      "category": "V",
+      "weighted_degree": 3.1687640253176634,
+      "betweenness": 0.031560490940970194
+    },
+    {
+      "variance": 0.36647955092221335,
+      "mean": 1.5517241379310345,
+      "category": "S",
+      "weighted_degree": 3.6776485409586366,
+      "betweenness": 0.007013442431326709
+    },
+    {
+      "variance": 0.3515102913659449,
+      "mean": 1.632183908045977,
+      "category": "S",
+      "weighted_degree": 1.5056154378148392,
+      "betweenness": 0.004091174751607247
+    },
+    {
+      "variance": 0.3492541594951233,
+      "mean": 1.5119047619047619,
+      "category": "V",
+      "weighted_degree": 3.342521800696057,
+      "betweenness": 0.004091174751607247
+    },
+    {
+      "variance": 0.34733893557422973,
+      "mean": 1.4705882352941178,
+      "category": "S",
+      "weighted_degree": 10.212952775914795,
+      "betweenness": 0.06487434248977206
+    },
+    {
+      "variance": 0.31876750700280115,
+      "mean": 1.6705882352941177,
+      "category": "V",
+      "weighted_degree": 7.550149656036832,
+      "betweenness": 0.018118059614260665
+    },
+    {
+      "variance": 0.25367548783747657,
+      "mean": 1.7126436781609196,
+      "category": "E",
+      "weighted_degree": 5.432064625598937,
+      "betweenness": 0.0058445353594389245
+    }
+  ]
 }

@@ -15,7 +15,11 @@ from src.data_prep import get_category, CATEGORY_LABELS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def descriptive_stats(G: nx.Graph, name: str = "Network") -> dict:
-    """Compute standard descriptive statistics for a network."""
+    """Compute standard descriptive statistics for a network.
+
+    Use the explicitly stored distance attribute for shortest-path metrics and the
+    similarity/weight attribute for edge strength interpretation.
+    """
     stats = {}
     stats["name"] = name
     stats["nodes"] = G.number_of_nodes()
@@ -25,7 +29,6 @@ def descriptive_stats(G: nx.Graph, name: str = "Network") -> dict:
     stats["avg_degree"] = round(np.mean(degrees), 2)
     stats["clustering_coeff"] = round(nx.average_clustering(G, weight="weight"), 4)
 
-    # Largest connected component for path-based metrics
     if nx.is_connected(G):
         lcc = G
     else:
@@ -34,8 +37,11 @@ def descriptive_stats(G: nx.Graph, name: str = "Network") -> dict:
     stats["lcc_edges"] = lcc.number_of_edges()
 
     if lcc.number_of_nodes() > 1:
-        stats["avg_path_length"] = round(nx.average_shortest_path_length(lcc), 4)
-        stats["diameter"] = nx.diameter(lcc)
+        path_graph = lcc.copy()
+        for u, v, d in path_graph.edges(data=True):
+            d["distance"] = d.get("distance", 1.0 / max(d.get("weight", 1.0), 1e-9))
+        stats["avg_path_length"] = round(nx.average_shortest_path_length(path_graph, weight="distance"), 4)
+        stats["diameter"] = nx.diameter(path_graph, weight="distance")
     else:
         stats["avg_path_length"] = None
         stats["diameter"] = None
@@ -47,18 +53,29 @@ def descriptive_stats(G: nx.Graph, name: str = "Network") -> dict:
 #  Community Detection (Louvain)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def detect_communities(G: nx.Graph, resolution: float = 1.0) -> tuple[dict, float]:
+def detect_communities(G: nx.Graph, resolution: float = 1.0, seed: int | None = None) -> tuple[dict, float]:
     """
     Run Louvain community detection.
+
+    Parameters
+    ----------
+    G : networkx.Graph
+    resolution : float
+        Louvain resolution parameter.
+    seed : int | None
+        Optional random seed used by python-louvain's random_state argument.
 
     Returns
     -------
     partition : dict  node → community_id
     modularity : float
     """
-    partition = community_louvain.best_partition(G, weight="weight",
-                                                  resolution=resolution,
-                                                  random_state=42)
+    partition = community_louvain.best_partition(
+        G,
+        weight="weight",
+        resolution=resolution,
+        random_state=seed,
+    )
     modularity = community_louvain.modularity(partition, G, weight="weight")
     return partition, round(modularity, 4)
 
@@ -142,10 +159,14 @@ def _safe_eigenvector_centrality(G: nx.Graph, weight: str = "weight") -> dict:
 
 
 def centrality_analysis_n1(G: nx.Graph) -> pd.DataFrame:
-    """Eigenvector, degree, and betweenness centrality for Network 1."""
+    """Eigenvector, degree, and betweenness centrality for Network 1.
+
+    Shortest-path based betweenness uses distance weights, while the degree and
+    interpretation remain based on similarity weights.
+    """
     eigen = _safe_eigenvector_centrality(G, weight="weight")
     degree = dict(G.degree(weight="weight"))
-    between = nx.betweenness_centrality(G, weight="weight")
+    between = nx.betweenness_centrality(G, weight="distance")
 
     df = pd.DataFrame({
         "eigenvector": eigen,
@@ -156,8 +177,12 @@ def centrality_analysis_n1(G: nx.Graph) -> pd.DataFrame:
 
 
 def centrality_analysis_n2(G: nx.Graph) -> pd.DataFrame:
-    """Betweenness and degree centrality for Network 2 (statements)."""
-    between = nx.betweenness_centrality(G, weight="weight")
+    """Betweenness and degree centrality for Network 2 (statements).
+
+    The signed correlation graph stores both edge strength and a derived distance
+    for shortest-path calculations; interpretation still uses the absolute strength.
+    """
+    between = nx.betweenness_centrality(G, weight="distance")
     degree = dict(G.degree(weight="weight"))
     eigen = _safe_eigenvector_centrality(G, weight="weight")
 

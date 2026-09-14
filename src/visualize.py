@@ -219,3 +219,70 @@ def plot_degree_distribution(G: nx.Graph):
                label=f"Mean = {np.mean(degrees):.1f}")
     ax.legend()
     _save(fig, "fig6_degree_distribution")
+
+
+def plot_k_sensitivity(df: pd.DataFrame):
+    """Plot how respondent-network metrics change with k."""
+    fig, axes = plt.subplots(2, 2, figsize=(10, 7))
+    x = df["k"]
+    axes[0, 0].plot(x, df["edges"], marker="o")
+    axes[0, 0].set_title("Edge count")
+    axes[0, 1].plot(x, df["avg_degree"], marker="o", color="#20a39e")
+    axes[0, 1].set_title("Average degree")
+    axes[1, 0].plot(x, df["clustering"], marker="o", color="#f4a261")
+    axes[1, 0].set_title("Clustering coefficient")
+    axes[1, 1].plot(x, df["modularity"], marker="o", color="#e76f51")
+    axes[1, 1].set_title("Louvain modularity")
+    for ax in axes.flat:
+        ax.set_xlabel("k")
+        ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout()
+    _save(fig, "fig7_k_sensitivity")
+
+
+def plot_threshold_sensitivity(df: pd.DataFrame):
+    """Plot statement-network sensitivity across absolute-correlation thresholds."""
+    fig, axes = plt.subplots(2, 2, figsize=(10, 7))
+    x = df["threshold"]
+    axes[0, 0].plot(x, df["edges"], marker="o")
+    axes[0, 0].set_title("Edge count")
+    axes[0, 1].plot(x, df["density"], marker="o", color="#3a86ff")
+    axes[0, 1].set_title("Density")
+    axes[1, 0].plot(x, df["lcc_size"], marker="o", color="#ff7b00")
+    axes[1, 0].set_title("LCC size")
+    axes[1, 1].plot(x, df["clustering"], marker="o", color="#8338ec")
+    axes[1, 1].set_title("Clustering coefficient")
+    for ax in axes.flat:
+        ax.set_xlabel("|r| threshold")
+        ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout()
+    _save(fig, "fig8_threshold_sensitivity")
+
+
+def plot_domain_correlation_heatmap(matrix: pd.DataFrame):
+    """Heatmap of domain-level score correlation matrix."""
+    fig, ax = plt.subplots(figsize=(6, 5))
+    sns.heatmap(matrix.astype(float), annot=True, fmt=".2f", cmap="coolwarm", center=0,
+                linewidths=0.5, ax=ax)
+    ax.set_title("Domain-level score correlations")
+    ax.set_xlabel("Domain")
+    ax.set_ylabel("Domain")
+    fig.tight_layout()
+    _save(fig, "fig9_domain_correlation_heatmap")
+
+
+def plot_polarization_vs_centrality(summary: pd.DataFrame):
+    """Scatter of statement variance against weighted degree and betweenness."""
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.5))
+    axes[0].scatter(summary["weighted_degree"], summary["variance"], s=25, alpha=0.7)
+    axes[0].set_xlabel("Weighted degree")
+    axes[0].set_ylabel("Variance")
+    axes[0].set_title("Polarization vs statement degree")
+    axes[1].scatter(summary["betweenness"], summary["variance"], s=25, alpha=0.7)
+    axes[1].set_xlabel("Betweenness centrality")
+    axes[1].set_ylabel("Variance")
+    axes[1].set_title("Polarization vs statement betweenness")
+    for ax in axes:
+        ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout()
+    _save(fig, "fig10_polarization_vs_centrality")
