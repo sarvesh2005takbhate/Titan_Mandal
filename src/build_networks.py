@@ -7,6 +7,8 @@ Network 2: Statement Association Network (nodes = statements, edges = signed
            Pearson correlation above a threshold).
 """
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import networkx as nx
@@ -41,6 +43,17 @@ def pairwise_cosine(df: pd.DataFrame, center: bool = True) -> pd.DataFrame:
     mat = df.to_numpy(dtype=float)
     if center:
         mat = mat - np.nanmean(mat, axis=1, keepdims=True)
+        # A respondent whose answers are all identical centres to the zero vector, whose
+        # cosine similarity to everyone is undefined; such a respondent silently ends up
+        # with no edges regardless of k. Surface it instead of letting it pass unnoticed.
+        zero_variance = np.flatnonzero(np.sqrt(np.nansum(mat ** 2, axis=1)) == 0)
+        if zero_variance.size:
+            warnings.warn(
+                "Respondent(s) " + ", ".join(str(df.index[i]) for i in zero_variance)
+                + " have zero variance after centring (all answers identical or missing) and will "
+                  "have no valid similarity to anyone; they become isolated nodes for any k.",
+                RuntimeWarning, stacklevel=2,
+            )
 
     presence = (~np.isnan(mat)).astype(float)
     values = np.nan_to_num(mat, nan=0.0)
