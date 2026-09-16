@@ -71,14 +71,14 @@ def _styles():
         "title": style("DocTitle", "Title", fontName="Helvetica-Bold", fontSize=20, leading=24,
                        textColor=PRIMARY, alignment=0, spaceAfter=6),
         "h1": style("H1", "Heading1", fontName="Helvetica-Bold", fontSize=14, leading=17, textColor=PRIMARY,
-                    spaceBefore=10, spaceAfter=5, keepWithNext=True),
-        "h2": style("H2", "Heading2", fontName="Helvetica-Bold", fontSize=11, leading=14, textColor=SECONDARY,
                     spaceBefore=8, spaceAfter=4, keepWithNext=True),
-        "body": style("Body", fontName="Helvetica", fontSize=9.3, leading=12.4, textColor=ink, spaceAfter=4),
+        "h2": style("H2", "Heading2", fontName="Helvetica-Bold", fontSize=11, leading=14, textColor=SECONDARY,
+                    spaceBefore=7, spaceAfter=3, keepWithNext=True),
+        "body": style("Body", fontName="Helvetica", fontSize=9.3, leading=12.4, textColor=ink, spaceAfter=3),
         "bullet": style("Bullet", fontName="Helvetica", fontSize=9.3, leading=12.4, leftIndent=12,
                         bulletIndent=2, textColor=ink, spaceAfter=2),
         "caption": style("Caption", fontName="Helvetica-Oblique", fontSize=8.3, leading=11,
-                         textColor=colors.HexColor("#555555"), alignment=1, spaceBefore=2, spaceAfter=7),
+                         textColor=colors.HexColor("#555555"), alignment=1, spaceBefore=2, spaceAfter=4),
         "th": style("TH", fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=colors.white),
         "td": style("TD", fontName="Helvetica", fontSize=8, leading=10, textColor=ink),
     }
@@ -132,14 +132,14 @@ def _table(lines, st):
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
-    return [Spacer(1, 3), t, Spacer(1, 8)]
+    return [Spacer(1, 3), t, Spacer(1, 6)]
 
 
-def _image(path: Path, caption: str, st, max_height=270):
+def _image(path: Path, caption: str, st, max_height=200):
     """Image scaled to fit the text width and max height, preserving aspect ratio."""
     w, h = ImageReader(str(path)).getSize()
     scale = min(CONTENT_WIDTH / w, max_height / h)
-    return KeepTogether([Spacer(1, 4), Image(str(path), width=w * scale, height=h * scale),
+    return KeepTogether([Spacer(1, 3), Image(str(path), width=w * scale, height=h * scale),
                          Paragraph(_inline(caption), st["caption"])])
 
 
