@@ -7,3 +7,7 @@ scipy>=1.10
 python-louvain>=0.16
 reportlab>=4.0
 pytest>=7.0
+
+# Versions the committed results were verified with (Python 3.13):
+#   pandas 3.0.5, numpy 2.2.4, networkx 3.6.1, matplotlib 3.11.2,
+#   scikit-learn 1.9.1, scipy 1.18.1, python-louvain 0.16, reportlab 5.0.1, pytest 9.1.1
