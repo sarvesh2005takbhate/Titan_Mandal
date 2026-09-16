@@ -44,6 +44,8 @@ def modularity_null_model(df: pd.DataFrame, observed_q: float, k: int = 8, runs:
     qs = np.array(qs)
     return {
         "observed_q": observed_q,
+        "runs": runs,
+        "null_exceed_count": int(np.sum(qs >= observed_q)),
         "null_q": qs.tolist(),
         "null_mean": round(float(qs.mean()), 4),
         "null_std": round(float(qs.std()), 4),
@@ -76,14 +78,24 @@ def community_stability(G: nx.Graph, df: pd.DataFrame, partition: dict, k: int =
       * data stability — rebuild the network from a random 90 % of respondents
     """
     rng = np.random.default_rng(seed)
-    seed_ari = [_ari(partition, detect_communities(G, seed=s)[0]) for s in range(100, 100 + runs)]
+    seed_parts, seed_qs = [], []
+    for s in range(100, 100 + runs):
+        part_s, q_s = detect_communities(G, seed=s)
+        seed_parts.append(part_s)
+        seed_qs.append(q_s)
+    seed_ari = [_ari(partition, p) for p in seed_parts]
     data_ari = []
     for s in range(runs):
         keep = rng.choice(df.index, size=int(subsample * len(df)), replace=False)
         Gs, _ = build_respondent_network(df.loc[keep], k=k)
         data_ari.append(_ari(partition, detect_communities(Gs, seed=s)[0]))
     return {
+        "seed_runs": runs,
         "seed_ari_mean": round(float(np.mean(seed_ari)), 3),
+        "seed_q_mean": round(float(np.mean(seed_qs)), 4),
+        "seed_q_std": round(float(np.std(seed_qs)), 4),
+        "seed_q_min": round(float(np.min(seed_qs)), 4),
+        "seed_q_max": round(float(np.max(seed_qs)), 4),
         "subsample_ari_mean": round(float(np.mean(data_ari)), 3),
         "subsample_ari_std": round(float(np.std(data_ari)), 3),
     }
@@ -279,10 +291,19 @@ def parallel_analysis(df: pd.DataFrame, n_components: int = 6, runs: int = 100, 
                      for _ in range(runs)])
     threshold = np.percentile(null, 95, axis=0)
     above = observed > threshold
+    if bool(above.all()):
+        n_above = n_components
+    else:
+        # Components are ordered by explained variance; the count of above-noise
+        # components is the leading run of True values (index of the first below-noise
+        # component). This assumes the above/below pattern is monotonic across the
+        # ordered components, which holds here; a non-leading above-noise component
+        # would not be counted.
+        n_above = int(np.argmax(~above))
     return {
         "observed": observed.tolist(),
         "null_95": threshold.tolist(),
-        "n_above_noise": int(np.argmin(above)) if not above.all() else n_components,
+        "n_above_noise": n_above,
     }
 
 
@@ -336,6 +357,26 @@ def item_pair_correlations(corr: pd.DataFrame, pairs) -> pd.DataFrame:
     return pd.DataFrame([{"u": a, "v": b, "r": corr.loc[a, b]} for a, b in pairs])
 
 
+def pca_imputation_sensitivity(df: pd.DataFrame) -> dict:
+    """Complete-case check on the mean imputation used by principal_components().
+
+    PCA needs complete rows, so principal_components() imputes the few residual
+    missing cells with column means (disclosed in the report). This reruns the PCA
+    on fully complete respondents only and reports how closely the second axis —
+    the largest substantive dimension — is reproduced. PC2's sign is arbitrary,
+    so the complete-case axis is aligned to the reported one before correlating.
+    """
+    complete = df.dropna(axis=0)
+    if len(complete) < 10:
+        return {"n_complete": int(len(complete))}
+    base = principal_components(df, 2)["loadings"]["PC2"]
+    cc = principal_components(complete, 2)["loadings"]["PC2"]
+    r = float(base.corr(cc))
+    if r < 0:
+        r = -r
+    return {"n_complete": int(len(complete)), "pc2_loading_r": round(r, 3)}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Evidence for design choices (chosen method vs the obvious alternative)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -358,7 +399,8 @@ def design_choice_evidence(df_all: pd.DataFrame, df: pd.DataFrame, G: nx.Graph, 
     Gt.add_edges_from((sim.index[i], sim.index[j]) for i, j in zip(*iu) if sim.iat[i, j] >= cut)
     ev["threshold_isolates"] = nx.number_of_isolates(Gt)
     ev["threshold_components"] = nx.number_connected_components(Gt)
-    ev["min_connected_k"] = next(k for k in range(1, 20) if nx.is_connected(knn_graph(sim, k)))
+    # None if no k <= 19 connects the graph; callers should handle that gracefully.
+    ev["min_connected_k"] = next((k for k in range(1, 20) if nx.is_connected(knn_graph(sim, k))), None)
 
     # 1/similarity vs 1 − similarity as path cost.
     H = G.copy()
